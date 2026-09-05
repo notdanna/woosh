@@ -115,7 +115,7 @@ func renderAppIcon(px: Int) -> Data? {
 
 // MARK: - Menu bar glyph (template)
 
-let menuBarCanvas = (width: 22, height: 18)
+let menuBarCanvas = (width: 12, height: 18)
 
 func renderMenuBarIcon(scale: Int) -> Data? {
     let width = menuBarCanvas.width * scale, height = menuBarCanvas.height * scale
