@@ -73,51 +73,57 @@ struct ScratchpadView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "note.text")
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(.secondary)
+        ZStack {
+            ScratchpadDragHandle()
 
-            Text(text.pageTitle)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(.primary)
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(.secondary)
 
-            Spacer(minLength: 8)
-                .contentShape(Rectangle())
-                .overlay(ScratchpadDragHandle())
+                    Text(text.pageTitle)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
+                .allowsHitTesting(false)
 
-            Button {
-                service.togglePin()
-            } label: {
-                Image(systemName: service.isPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(service.isPinned ? Color.accentColor : Color.secondary)
-                    .background {
-                        if service.isPinned {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.accentColor.opacity(0.15))
+                Spacer(minLength: 8)
+                    .allowsHitTesting(false)
+
+                Button {
+                    service.togglePin()
+                } label: {
+                    Image(systemName: service.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                        .foregroundStyle(service.isPinned ? Color.accentColor : Color.secondary)
+                        .background {
+                            if service.isPinned {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.15))
+                            }
                         }
-                    }
-            }
-            .buttonStyle(.plain)
-            .help(service.isPinned ? text.closeOnClickOutside : text.keepOpen)
-            .accessibilityLabel(service.isPinned ? text.closeOnClickOutside : text.keepOpen)
+                }
+                .buttonStyle(.plain)
+                .help(service.isPinned ? text.closeOnClickOutside : text.keepOpen)
+                .accessibilityLabel(service.isPinned ? text.closeOnClickOutside : text.keepOpen)
 
-            Button {
-                ScratchpadService.shared.hide()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10.5, weight: .bold))
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(.secondary)
-                    .background(Circle().fill(Color.secondary.opacity(0.12)))
+                Button {
+                    ScratchpadService.shared.hide()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .frame(width: 22, height: 22)
+                        .foregroundStyle(.secondary)
+                        .background(Circle().fill(Color.secondary.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+                .help(l10n.s.menuClose)
+                .accessibilityLabel(l10n.s.menuClose)
             }
-            .buttonStyle(.plain)
-            .help(l10n.s.menuClose)
-            .accessibilityLabel(l10n.s.menuClose)
+            .padding(.horizontal, 14)
         }
-        .padding(.horizontal, 14)
         .frame(height: 38)
     }
 
@@ -359,8 +365,14 @@ private struct ScratchpadDragHandle: NSViewRepresentable {
     final class DragHandleView: NSView {
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point) else { return nil }
+            return self
+        }
+
         override func mouseDown(with event: NSEvent) {
-            window?.performDrag(with: event)
+            guard let window else { return }
+            window.performDrag(with: event)
         }
     }
 }

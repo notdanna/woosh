@@ -299,7 +299,7 @@ final class ScreenshotSelectionController {
         return Int(event.keyCode) == kVK_ANSI_S
     }
 
-    private func toggleScrollingCapture() {
+    fileprivate func toggleScrollingCapture() {
         guard offersScrollingCapture else { return }
         scrollingCaptureEnabled.toggle()
         panels.forEach { $0.overlayView.refreshPointerState() }
@@ -696,7 +696,9 @@ private final class ScreenshotOverlayView: NSView {
             offersScrollingCapture: controller.offersScrollingCapture,
             requiresDraggedRegion: controller.requiresDraggedRegion,
             scrollingCaptureEnabled: controller.scrollingCaptureEnabled,
-            screenCaptureOptions: screenCaptureOptions))
+            screenCaptureOptions: screenCaptureOptions,
+            onCancel: { [weak controller] in controller?.cancel() },
+            onToggleScrollingCapture: { [weak controller] in controller?.toggleScrollingCapture() }))
         host.passesThrough = screenCaptureOptions == nil
         guideHost = host
         super.init(frame: frame)
@@ -718,11 +720,11 @@ private final class ScreenshotOverlayView: NSView {
 
     override func layout() {
         super.layout()
-        let width = min(screenCaptureOptions == nil ? 680 : 620,
+        let width = min(screenCaptureOptions == nil ? 680 : 660,
                         max(280, bounds.width - 32))
         let height: CGFloat = screenCaptureOptions != nil
-            ? 146
-            : 72
+            ? 74
+            : 52
         guideHost.frame = CGRect(x: bounds.midX - width / 2,
                                  y: bounds.maxY - height - 32,
                                  width: width,
@@ -754,7 +756,9 @@ private final class ScreenshotOverlayView: NSView {
             offersScrollingCapture: controller?.offersScrollingCapture ?? false,
             requiresDraggedRegion: controller?.requiresDraggedRegion ?? false,
             scrollingCaptureEnabled: controller?.scrollingCaptureEnabled ?? false,
-            screenCaptureOptions: screenCaptureOptions)
+            screenCaptureOptions: screenCaptureOptions,
+            onCancel: { [weak controller] in controller?.cancel() },
+            onToggleScrollingCapture: { [weak controller] in controller?.toggleScrollingCapture() })
     }
 
     func captureToolDidChange() {
@@ -1091,21 +1095,28 @@ private final class PassThroughHostingView<Content: View>: NSHostingView<Content
 }
 
 private struct CaptureGuideView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let strings: ScreenshotFeatureStrings
     let purpose: String?
     let offersScrollingCapture: Bool
     let requiresDraggedRegion: Bool
     let scrollingCaptureEnabled: Bool
     let screenCaptureOptions: ScreenCaptureSelectionOptions?
+    var onCancel: (() -> Void)? = nil
+    var onToggleScrollingCapture: (() -> Void)? = nil
 
     var body: some View {
         if let screenCaptureOptions {
-            UnifiedCaptureGuideContent(strings: strings,
-                                       options: screenCaptureOptions,
-                                       offersScrollingCapture: offersScrollingCapture,
-                                       scrollingCaptureEnabled: scrollingCaptureEnabled)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .allowsHitTesting(true)
+            UnifiedCaptureGuideContent(
+                strings: strings,
+                options: screenCaptureOptions,
+                offersScrollingCapture: offersScrollingCapture,
+                scrollingCaptureEnabled: scrollingCaptureEnabled,
+                onCancel: onCancel,
+                onToggleScrollingCapture: onToggleScrollingCapture
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(true)
         } else {
             standardGuide
         }
@@ -1114,13 +1125,14 @@ private struct CaptureGuideView: View {
     private var standardGuide: some View {
         HStack(spacing: 12) {
             Image(systemName: "viewfinder")
-                .font(.system(size: 17, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.accentColor.opacity(0.14)))
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(subtitle)
@@ -1128,8 +1140,10 @@ private struct CaptureGuideView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 8)
-            HStack(spacing: 7) {
+
+            Spacer(minLength: 10)
+
+            HStack(spacing: 6) {
                 if !requiresDraggedRegion && !scrollingCaptureEnabled {
                     CaptureKeyHint(key: "↩", icon: "rectangle.inset.filled")
                 }
@@ -1142,14 +1156,17 @@ private struct CaptureGuideView: View {
             }
         }
         .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(height: 48)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(colorScheme == .dark ? 0.42 : 0.20))
+        )
+        .glassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.22), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.22), radius: 18, y: 7)
+        .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
         .allowsHitTesting(false)
     }
 
@@ -1170,91 +1187,141 @@ private struct CaptureGuideView: View {
             : strings.scrollingCaptureHintOff
         return base + "  ·  " + scrolling
     }
-
 }
 
 private struct UnifiedCaptureGuideContent: View {
+    @Environment(\.colorScheme) private var colorScheme
     let strings: ScreenshotFeatureStrings
     @ObservedObject var options: ScreenCaptureSelectionOptions
     @ObservedObject private var l10n = L10n.shared
     let offersScrollingCapture: Bool
     let scrollingCaptureEnabled: Bool
+    var onCancel: (() -> Void)? = nil
+    var onToggleScrollingCapture: (() -> Void)? = nil
     @State private var hoveredTool: ScreenCaptureTool?
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                captureModePalette
-                escapeHint
-            }
-            contextualGuide
-            RecorderSelectionAudioControls(options: options.recorderAudio)
-                .opacity(options.selectedTool == .recording ? 1 : 0)
-                .allowsHitTesting(options.selectedTool == .recording)
-                .accessibilityHidden(options.selectedTool != .recording)
+        VStack(spacing: 6) {
+            mainBar
+            subtitleCapsule
         }
     }
 
-    private var contextualGuide: some View {
-        HStack(spacing: 7) {
+    private var mainBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 3) {
+                ForEach(options.availableTools, id: \.self) { tool in
+                    captureModeButton(tool)
+                }
+            }
+
+            if options.selectedTool == .recording {
+                divider
+                RecorderInlineAudioControls(options: options.recorderAudio)
+            } else if offersScrollingCapture, options.selectedTool == .screenshot {
+                divider
+                scrollingCaptureButton
+            }
+
+            divider
+
+            HStack(spacing: 4) {
+                if options.selectedTool != .color {
+                    CaptureKeyHint(key: "↩", icon: "rectangle.inset.filled")
+                }
+                CaptureKeyHint(key: "Z", icon: "plus.magnifyingglass")
+            }
+
+            divider
+
+            Button {
+                onCancel?()
+            } label: {
+                HStack(spacing: 3.5) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9.5, weight: .bold))
+                    Text("esc")
+                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .frame(height: 28)
+                .background(Color.primary.opacity(0.06),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help(l10n.s.menuClose + " (Esc)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(colorScheme == .dark ? 0.42 : 0.20))
+        )
+        .glassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.22), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.28), radius: 20, y: 8)
+    }
+
+    private var divider: some View {
+        Divider()
+            .opacity(0.3)
+            .frame(height: 18)
+    }
+
+    private var scrollingCaptureButton: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.12)) {
+                onToggleScrollingCapture?()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.stack")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("S")
+                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(scrollingCaptureEnabled ? Color.white : Color.secondary)
+            .padding(.horizontal, 7)
+            .frame(height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(scrollingCaptureEnabled ? Color.accentColor : Color.primary.opacity(0.05))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(scrollingCaptureEnabled ? 0.45 : 0), lineWidth: 0.8)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(scrollingCaptureEnabled ? strings.scrollingCaptureHintOn : strings.scrollingCaptureHintOff)
+    }
+
+    private var subtitleCapsule: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary.opacity(0.8))
             Text(subtitle)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
-            CaptureKeyHint(key: "1–4", icon: "keyboard")
-            if options.selectedTool != .color {
-                CaptureKeyHint(key: "↩", icon: "rectangle.inset.filled")
-                if offersScrollingCapture, options.selectedTool == .screenshot {
-                    CaptureKeyHint(key: scrollingCaptureEnabled ? "S on" : "S",
-                                   icon: "rectangle.stack")
-                }
-                CaptureKeyHint(key: "Z", icon: "plus.magnifyingglass")
-            }
         }
         .padding(.horizontal, 10)
-        .frame(height: 30)
-        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .padding(.vertical, 3)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(colorScheme == .dark ? 0.35 : 0.15))
+        )
+        .glassSurface(in: Capsule(style: .continuous))
         .overlay {
             Capsule(style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.15), lineWidth: 0.8)
         }
-        .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
-    }
-
-    private var escapeHint: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "xmark")
-                .font(.system(size: 10, weight: .bold))
-            Text("esc")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .frame(height: 56)
-        .background(.regularMaterial,
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
-    }
-
-    private var captureModePalette: some View {
-        HStack(spacing: 2) {
-            ForEach(options.availableTools, id: \.self) { tool in
-                captureModeButton(tool)
-            }
-        }
-        .padding(4)
-        .background(.regularMaterial,
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
+        .shadow(color: .black.opacity(0.16), radius: 8, y: 3)
     }
 
     private func captureModeButton(_ tool: ScreenCaptureTool) -> some View {
@@ -1262,41 +1329,39 @@ private struct UnifiedCaptureGuideContent: View {
         let hovered = hoveredTool == tool
         let title = tool.settingsTitle(l10n.s, language: l10n.language)
         return Button {
-            withAnimation(.easeOut(duration: 0.16)) {
+            withAnimation(.easeOut(duration: 0.14)) {
                 options.select(tool)
             }
         } label: {
-            VStack(spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(tool.shortcutKey)
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(selected ? Color.white : Color.primary)
-                        .frame(width: 19, height: 19)
-                        .background(selected ? Color.accentColor : Color.primary.opacity(0.11),
-                                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    Image(systemName: tool.systemImageName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                }
+            HStack(spacing: 5) {
+                Text(tool.shortcutKey)
+                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(selected ? Color.white : Color.primary)
+                    .frame(width: 17, height: 17)
+                    .background(selected ? Color.accentColor : Color.primary.opacity(0.10),
+                                in: RoundedRectangle(cornerRadius: 4.5, style: .continuous))
+                Image(systemName: tool.systemImageName)
+                    .font(.system(size: 11.5, weight: .semibold))
                 Text(title)
-                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                    .font(.system(size: 11, weight: selected ? .semibold : .medium))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
             }
-            .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.78))
-            .frame(width: 116, height: 48)
-            .background(selected ? Color.accentColor.opacity(0.16)
-                        : Color.primary.opacity(hovered ? 0.08 : 0.035),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.75))
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(
+                selected ? Color.accentColor.opacity(0.18)
+                         : Color.primary.opacity(hovered ? 0.08 : 0.035),
+                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(selected ? 0.48 : 0), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(selected ? 0.45 : 0), lineWidth: 0.8)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.12)) {
+            withAnimation(.easeOut(duration: 0.10)) {
                 hoveredTool = hovering ? tool : nil
             }
         }
@@ -1331,44 +1396,79 @@ private struct CaptureKeyHint: View {
     let icon: String
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 3.5) {
             Image(systemName: icon)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 9, weight: .semibold))
             Text(key)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
-        .frame(height: 26)
+        .padding(.horizontal, 6)
+        .frame(height: 28)
         .background(Color.primary.opacity(0.06),
-                    in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 
-private struct RecorderSelectionAudioControls: View {
+private struct RecorderInlineAudioControls: View {
     @ObservedObject var options: RecorderSelectionAudioOptions
     @ObservedObject private var l10n = L10n.shared
 
     private var strings: RecorderFeatureStrings { FeatureStrings.recorder(l10n.language) }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Toggle(isOn: $options.systemAudio) {
-                Label(strings.systemAudioTrackLabel, systemImage: "speaker.wave.2.fill")
+        HStack(spacing: 4) {
+            Button {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    options.systemAudio.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: options.systemAudio ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(strings.systemAudioTrackLabel)
+                        .font(.system(size: 10.5, weight: options.systemAudio ? .semibold : .medium))
+                }
+                .foregroundStyle(options.systemAudio ? Color.primary : Color.secondary)
+                .padding(.horizontal, 7)
+                .frame(height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(options.systemAudio ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.04))
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(options.systemAudio ? 0.40 : 0), lineWidth: 0.8)
+                }
             }
-            Toggle(isOn: $options.microphone) {
-                Label(strings.microphoneTrackLabel, systemImage: "mic.fill")
+            .buttonStyle(.plain)
+            .help(strings.systemAudioTrackLabel)
+
+            Button {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    options.microphone.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: options.microphone ? "mic.fill" : "mic.slash.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(strings.microphoneTrackLabel)
+                        .font(.system(size: 10.5, weight: options.microphone ? .semibold : .medium))
+                }
+                .foregroundStyle(options.microphone ? Color.primary : Color.secondary)
+                .padding(.horizontal, 7)
+                .frame(height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(options.microphone ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.04))
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(options.microphone ? 0.40 : 0), lineWidth: 0.8)
+                }
             }
+            .buttonStyle(.plain)
+            .help(strings.microphoneTrackLabel)
         }
-        .toggleStyle(.button)
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .padding(4)
-        .background(.regularMaterial, in: Capsule(style: .continuous))
-        .overlay {
-            Capsule(style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
     }
 }
