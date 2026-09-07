@@ -29,7 +29,7 @@ struct MixerSection: View {
 
     var body: some View {
         PanelSection(.mixer, title: l10n.s.mixerSection, collapsible: collapsible) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 outputPickers
                 headphoneDisconnectProtectionToggle
                 if AppFeature.soundOutputSwitcher.isAvailable {
@@ -68,7 +68,7 @@ struct MixerSection: View {
     }
 
     private var outputPickers: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             universalOutputPicker
             systemSoundOutputPicker
             if let outputSwitchError = mixer.outputSwitchError {
@@ -79,14 +79,14 @@ struct MixerSection: View {
     }
 
     private var universalOutputPicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
                 Label {
                     Text(l10n.s.mixerSystemOutputTitle)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                 } icon: {
                     Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                 }
                 .foregroundStyle(.secondary)
 
@@ -110,19 +110,19 @@ struct MixerSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .controlSize(.small)
-                .frame(width: 164)
+                .frame(width: 152)
                 .disabled(universalOutputDevices.isEmpty)
                 .help(l10n.s.mixerSystemOutputTooltip)
             }
 
             if let volume = mixer.systemOutputVolume {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: mixer.systemOutputMuted == true || volume <= 0.001
                           ? "speaker.slash.fill"
                           : "speaker.wave.2.fill")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 16)
+                        .frame(width: 14)
 
                     MixerVolumeSlider(value: systemOutputVolumeBinding,
                                       normalTint: normalSliderTint,
@@ -134,12 +134,12 @@ struct MixerSection: View {
 
                     EditableVolumePercent(currentPercent: Int((volume * 100).rounded()),
                                           maximumPercent: 100,
-                                          width: 36,
+                                          width: 34,
                                           editorID: "system-output",
                                           editingID: $editingVolumeID,
                                           accessibilityLabel: l10n.s.mixerSystemOutputTitle) {
                         Text("\(Int((volume * 100).rounded()))%")
-                            .font(.system(size: 10.5, weight: .medium))
+                            .font(.system(size: 10, weight: .medium))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     } onCommit: {
@@ -155,14 +155,14 @@ struct MixerSection: View {
     }
 
     private var systemSoundOutputPicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
                 Label {
                     Text(l10n.s.mixerSoundEffectsOutputTitle)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                 } icon: {
                     Image(systemName: "bell.fill")
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                 }
                 .foregroundStyle(.secondary)
 
@@ -187,7 +187,7 @@ struct MixerSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .controlSize(.small)
-                .frame(width: 164)
+                .frame(width: 152)
                 .disabled(systemSoundOutputDevices.isEmpty)
                 .help(l10n.s.mixerSoundEffectsOutputTooltip)
             }
@@ -361,14 +361,14 @@ struct MixerSection: View {
     }
 
     private var microphonePicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
                 Label {
                     Text(l10n.s.mixerInputTitle)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                 } icon: {
                     Image(systemName: "mic.fill")
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                 }
                 .foregroundStyle(.secondary)
 
@@ -390,7 +390,7 @@ struct MixerSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .controlSize(.small)
-                .frame(width: 164)
+                .frame(width: 152)
                 .disabled(inputManager.inputDevices.isEmpty)
                 .help(l10n.s.mixerInputTooltip)
             }
@@ -539,7 +539,7 @@ struct MixerSection: View {
     private var mixerRows: some View {
 #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 8) {
+            GlassEffectContainer(spacing: 5) {
                 rowList
             }
         } else {
@@ -615,12 +615,11 @@ private struct MixerRow: View {
     private var isBoosting: Bool { (app.volume * 100).rounded() > 100 }
     private var isAtUnity: Bool { (app.volume * 100).rounded() == 100 }
 
-    /// SoundSource-sized icon spanning the row's two lines (issue #166); the
-    /// bitmap must be requested at this size or the upscale looks blurry.
-    private static let iconPointSize: CGFloat = 32
+    /// Sized icon spanning the compact row
+    private static let iconPointSize: CGFloat = 24
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 8) {
             ZStack(alignment: .bottomTrailing) {
                 Image(nsImage: ResponsibleProcess.icon(for: app.ownerPid,
                                                        pointSize: Self.iconPointSize))
@@ -629,16 +628,16 @@ private struct MixerRow: View {
                 if app.isPlaying {
                     Circle()
                         .fill(PanelMetricColor.green(for: colorScheme))
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.2))
-                        .offset(x: -1, y: -1)
+                        .frame(width: 6.5, height: 6.5)
+                        .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1))
+                        .offset(x: 0, y: 0)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
                     Text(app.name)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
 
@@ -654,12 +653,12 @@ private struct MixerRow: View {
                     // (issue #177): the row explains itself instead of the
                     // app silently missing from the mixer.
                     Text(l10n.s.mixerBypassedCaption)
-                        .font(.system(size: 10.5))
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         MixerVolumeSlider(value: volumeBinding,
                                           normalTint: normalTint,
                                           boostTint: boostColor,
@@ -670,18 +669,18 @@ private struct MixerRow: View {
 
                         EditableVolumePercent(currentPercent: Int((app.volume * 100).rounded()),
                                               maximumPercent: Int(AppVolumeMixer.maxVolume * 100),
-                                              width: 42,
+                                              width: 38,
                                               editorID: "app:\(app.id)",
                                               editingID: $editingVolumeID,
                                               accessibilityLabel: app.name) {
                             HStack(spacing: 2) {
                                 if isBoosting {
                                     Image(systemName: "bolt.fill")
-                                        .font(.system(size: 8, weight: .bold))
+                                        .font(.system(size: 7.5, weight: .bold))
                                         .foregroundStyle(boostColor)
                                 }
                                 Text("\(Int((app.volume * 100).rounded()))%")
-                                    .font(.system(size: 10.5, weight: .medium))
+                                    .font(.system(size: 10, weight: .medium))
                                     .monospacedDigit()
                                     .foregroundStyle(isBoosting ? boostColor : Color.secondary)
                             }
@@ -693,9 +692,9 @@ private struct MixerRow: View {
                             mixer.setVolume(1, for: app)
                         } label: {
                             Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 9.5, weight: .semibold))
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(isBoosting ? boostColor : Color.secondary)
-                                .frame(width: 14)
+                                .frame(width: 12)
                         }
                         .buttonStyle(.plain)
                         .help(l10n.s.mixerResetTooltip)
@@ -706,11 +705,11 @@ private struct MixerRow: View {
                             mixer.toggleMute(app)
                         } label: {
                             Image(systemName: app.volume <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: 9.5))
                                 .foregroundStyle(app.volume <= 0.001
                                                  ? PanelMetricColor.red(for: colorScheme)
                                                  : Color.secondary)
-                                .frame(width: 16)
+                                .frame(width: 14)
                         }
                         .buttonStyle(.plain)
                     }
@@ -725,7 +724,7 @@ private struct MixerRow: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
         .contextMenu {
             // Same action as unchecking the app in the footer menu, one
             // right-click closer (issue #300).
@@ -1067,9 +1066,9 @@ private struct LiquidGlassMixerSlider: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
 
-    private let knobWidth: CGFloat = 24
-    private let knobHeight: CGFloat = 15
-    private let trackHeight: CGFloat = 5
+    private let knobWidth: CGFloat = 20
+    private let knobHeight: CGFloat = 13
+    private let trackHeight: CGFloat = 4
 
     private var progress: CGFloat {
         let clamped = min(max(value, 0), maximum)

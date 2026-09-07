@@ -88,16 +88,27 @@ final class ScreenTextService: ObservableObject {
             return .qr(reading)
         }
 
+        // Pass 1: Accurate with automatic language detection (all languages)
         var lines = recognizedLines(in: image,
                                     level: .accurate,
                                     automaticallyDetectLanguage: true,
-                                    preferredLanguages: fallbackLanguages)
+                                    usesLanguageCorrection: true)
+        
+        // Pass 2: Accurate with explicit fallback languages and no language correction (handles code, numbers, passwords)
         if lines.isEmpty {
-            // The fast path uses a different recognition model. It is a
-            // separate second chance when the accurate model returns no text.
+            lines = recognizedLines(in: image,
+                                    level: .accurate,
+                                    automaticallyDetectLanguage: false,
+                                    usesLanguageCorrection: false,
+                                    preferredLanguages: fallbackLanguages)
+        }
+
+        // Pass 3: Fast recognition fallback
+        if lines.isEmpty {
             lines = recognizedLines(in: image,
                                     level: .fast,
                                     automaticallyDetectLanguage: false,
+                                    usesLanguageCorrection: false,
                                     preferredLanguages: fallbackLanguages)
         }
         let text = QuickToolsSupport.joinedRecognizedText(lines)
@@ -108,13 +119,18 @@ final class ScreenTextService: ObservableObject {
         in image: CGImage,
         level: VNRequestTextRecognitionLevel,
         automaticallyDetectLanguage: Bool,
+        usesLanguageCorrection: Bool = true,
         preferredLanguages: [String] = []
     ) -> [QuickToolsSupport.RecognizedLine] {
         let request = VNRecognizeTextRequest()
+        if #available(macOS 13.0, *) {
+            request.revision = VNRecognizeTextRequestRevision3
+        }
         request.recognitionLevel = level
-        request.usesLanguageCorrection = true
+        request.usesLanguageCorrection = usesLanguageCorrection
         request.automaticallyDetectsLanguage = automaticallyDetectLanguage
-        if !preferredLanguages.isEmpty,
+
+        if !automaticallyDetectLanguage && !preferredLanguages.isEmpty,
            let supported = try? request.supportedRecognitionLanguages() {
             let available = preferredLanguages.filter { supported.contains($0) }
             if !available.isEmpty { request.recognitionLanguages = available }
