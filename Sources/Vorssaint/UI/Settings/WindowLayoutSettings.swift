@@ -72,6 +72,33 @@ struct WindowLayoutSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if gestureEnabled {
+                    HStack(spacing: 8) {
+                        Button {
+                            gestureModifiers = "option"
+                            gestureRaiseWindow = true
+                            WindowLayoutService.shared.syncWithPreferences()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: gestureModifiers == "option" ? "checkmark.circle.fill" : "circle")
+                                Text(text.gesturePresetYabai)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(gestureModifiers == "option" ? .accentColor : nil)
+
+                        Button {
+                            gestureModifiers = "control+command"
+                            WindowLayoutService.shared.syncWithPreferences()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: gestureModifiers == "control+command" ? "checkmark.circle.fill" : "circle")
+                                Text(text.gesturePresetMac)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(gestureModifiers == "control+command" ? .accentColor : nil)
+                    }
+
                     WindowGestureModifierPicker(storageValue: $gestureModifiers,
                                                 title: text.gestureModifiers)
                         .onChange(of: gestureModifiers) { _, _ in
@@ -80,9 +107,15 @@ struct WindowLayoutSettings: View {
                     WindowGestureHints(modifierStorage: gestureModifiers,
                                        moveText: text.gestureMove,
                                        resizeText: text.gestureResize)
-                    Text(text.gestureResizeHint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if gestureModifiers == "option" {
+                        Text(text.gestureYabaiHint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(text.gestureResizeHint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Toggle(text.gestureRaiseWindow, isOn: $gestureRaiseWindow)
                 }
             }

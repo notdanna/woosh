@@ -34,7 +34,7 @@ enum FeaturePreset: String, CaseIterable, Identifiable {
                     .monitorCPU, .monitorGPU, .monitorMemory,
                     .monitorNetwork, .monitorDisk, .monitorPower]
         case .windows:
-            return [.switcher, .windowLayout, .dockPreview, .dockClick, .windowMaximizer]
+            return [.switcher, .instantSpaces, .windowLayout, .dockPreview, .dockClick, .windowMaximizer]
         case .battery:
             // The lean monitor: battery, memory pressure and the processor,
             // with nothing that listens to input events.
@@ -51,6 +51,7 @@ enum FeaturePreset: String, CaseIterable, Identifiable {
             return []
         case .windows:
             return [DefaultsKey.switcherEnabled,
+                    DefaultsKey.instantSpacesEnabled,
                     DefaultsKey.dockPreviewEnabled,
                     DefaultsKey.dockClickMinimize,
                     DefaultsKey.windowMaximizeEnabled]
@@ -94,7 +95,7 @@ extension AppFeature {
             return .mouse
         case .switcher, .keyboardDebounce, .finderCutPaste, .finderRename, .superKey:
             return .keyboard
-        case .textSnippets, .autoQuit:
+        case .textSnippets, .autoQuit, .instantSpaces:
             return .inputs
         case .windowLayout:
             return UserDefaults.standard.bool(forKey: DefaultsKey.windowGestureEnabled)

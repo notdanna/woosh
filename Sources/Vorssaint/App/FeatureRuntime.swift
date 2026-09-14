@@ -126,6 +126,7 @@ final class FeatureRuntime: ObservableObject {
             WindowUseTracker.shared.syncWithFeatures()
             AppSwitcher.shared.syncWithPreferences()
         },
+        .instantSpaces: { InstantSpacesService.shared.syncWithPreferences() },
         .dockPreview: { DockPreviewService.shared.syncWithPreferences() },
         .dockClick: { DockClickService.shared.syncWithPreferences() },
         .windowMaximizer: { WindowMaximizer.shared.syncWithPreferences() },

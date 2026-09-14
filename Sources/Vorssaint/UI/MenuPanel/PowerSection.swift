@@ -119,11 +119,15 @@ struct PowerSection: View {
             }
             case .battery:
             if pwrBattery, power.hasBattery, let flow = power.batteryWatts {
-                row(icon: flow >= 0 ? "battery.100.bolt" : "battery.50",
-                    color: flow >= 0 ? PanelMetricColor.green(for: colorScheme) : .secondary,
+                let isCharging = power.isCharging || flow > 0.05
+                let caption = isCharging ? l10n.s.powerCharging : (power.externalConnected ? l10n.s.powerPluggedIn : l10n.s.powerOnBattery)
+                let icon = isCharging ? "battery.100.bolt" : (power.externalConnected ? "battery.100" : "battery.50")
+                let color: Color = isCharging ? PanelMetricColor.green(for: colorScheme) : .secondary
+                row(icon: icon,
+                    color: color,
                     label: l10n.s.powerBattery,
                     value: MetricFormat.watts(abs(flow)),
-                    caption: flow >= 0 ? l10n.s.powerCharging : l10n.s.powerOnBattery,
+                    caption: caption,
                     visible: $pwrBattery, editing: editing)
             } else if editing && !pwrBattery {
                 PanelHiddenItemRow(title: l10n.s.powerBattery,

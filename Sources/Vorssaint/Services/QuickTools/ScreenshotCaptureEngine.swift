@@ -75,20 +75,40 @@ enum ScreenshotCaptureEngine {
         let ownWindows = excludedOwnWindows(in: content,
                                             hideVorssaintWindows: hideVorssaintWindows,
                                             protectedWindowIDs: protectedWindowIDs)
-        var result: [CGDirectDisplayID: CGImage] = [:]
-        for screen in NSScreen.screens {
+
+        // Capture all displays concurrently instead of sequentially, synchronizing
+        // the frozen frame and reducing setup latency on multi-display setups.
+        struct ScreenTarget: @unchecked Sendable {
+            let id: CGDirectDisplayID
+            let display: SCDisplay
+            let scale: CGFloat
+        }
+        let targets: [ScreenTarget] = NSScreen.screens.compactMap { screen in
             let id = screen.displayID
             guard id != 0,
                   let display = content.displays.first(where: { $0.displayID == id })
-            else { continue }
-            if let image = await captureDisplay(display,
-                                                scale: screen.backingScaleFactor,
-                                                excluding: ownWindows,
-                                                includePointer: includePointer) {
-                result[id] = image
-            }
+            else { return nil }
+            return ScreenTarget(id: id, display: display, scale: screen.backingScaleFactor)
         }
-        return result
+
+        return await withTaskGroup(of: (CGDirectDisplayID, CGImage?).self) { group in
+            for target in targets {
+                group.addTask {
+                    let image = await captureDisplay(target.display,
+                                                     scale: target.scale,
+                                                     excluding: ownWindows,
+                                                     includePointer: includePointer)
+                    return (target.id, image)
+                }
+            }
+            var result: [CGDirectDisplayID: CGImage] = [:]
+            for await (id, image) in group {
+                if let image {
+                    result[id] = image
+                }
+            }
+            return result
+        }
     }
 
     /// The app's own windows a display capture must leave out, resolved

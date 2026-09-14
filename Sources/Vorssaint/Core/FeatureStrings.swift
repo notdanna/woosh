@@ -2258,3 +2258,26 @@ struct MonitorAlertFeatureStrings {
         batteryBodyFormat: "電池電量為 %d%%。"
     )
 }
+
+extension WindowLayoutFeatureStrings {
+    var gesturePresetYabai: String {
+        switch L10n.shared.language {
+        case .es: return "⌥ Option (estilo yabai)"
+        default: return "⌥ Option (yabai style)"
+        }
+    }
+
+    var gesturePresetMac: String {
+        switch L10n.shared.language {
+        case .es: return "⌃⌘ Control + Command"
+        default: return "⌃⌘ Control + Command"
+        }
+    }
+
+    var gestureYabaiHint: String {
+        switch L10n.shared.language {
+        case .es: return "Estilo yabai: mantén pulsada la tecla Option (⌥) y haz clic en cualquier parte de una ventana para moverla libremente. Con Shift (⌥⇧), cambia el tamaño."
+        default: return "yabai style: hold Option (⌥) and click anywhere inside a window to move it freely. Add Shift (⌥⇧) to resize."
+        }
+    }
+}

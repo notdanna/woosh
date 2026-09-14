@@ -292,17 +292,22 @@ enum ScreenshotRenderer {
     // MARK: - Pixelation source
 
     /// A low-resolution mosaic with per-block color variation.
+    private static func bestColorSpace(for image: CGImage?) -> CGColorSpace {
+        image?.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    }
+
     static func pixelatedImage(from image: CGImage) -> CGImage? {
         let block = ScreenshotSupport.pixelBlockSize(
             for: CGSize(width: image.width, height: image.height))
         let smallWidth = max(1, image.width / block)
         let smallHeight = max(1, image.height / block)
+        let colorSpace = bestColorSpace(for: image)
         guard let small = CGContext(data: nil,
                                     width: smallWidth,
                                     height: smallHeight,
                                     bitsPerComponent: 8,
                                     bytesPerRow: 0,
-                                    space: CGColorSpaceCreateDeviceRGB(),
+                                    space: colorSpace,
                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         small.interpolationQuality = .medium
@@ -330,7 +335,7 @@ enum ScreenshotRenderer {
                                    height: image.height,
                                    bitsPerComponent: 8,
                                    bytesPerRow: 0,
-                                   space: CGColorSpaceCreateDeviceRGB(),
+                                   space: colorSpace,
                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         full.interpolationQuality = .none
@@ -361,17 +366,36 @@ enum ScreenshotRenderer {
                              fill: BackdropFill,
                              downscaleTo1x: Bool) -> CGImage? {
         let imageSize = CGSize(width: baseImage.width, height: baseImage.height)
-        guard let flattened = renderFlattened(baseImage: baseImage,
-                                              annotations: annotations,
-                                              pixelated: pixelated,
-                                              scale: scale,
-                                              annotationShadowsEnabled: annotationShadowsEnabled)
-        else { return nil }
         let corner = ScreenshotSupport.cardCornerRadius(for: imageSize,
                                                         factor: style.cornerRadius)
+        let isFillNone: Bool
+        if case .none = fill {
+            isFillNone = true
+        } else {
+            isFillNone = false
+        }
+
+        // Fast path: if there are no annotations, no corner rounding, no backdrop,
+        // and no downscaling needed, return baseImage directly without re-allocating.
+        if annotations.isEmpty && corner <= 0 && isFillNone && (!downscaleTo1x || scale <= 1) {
+            return baseImage
+        }
+
+        let flattened: CGImage
+        if annotations.isEmpty {
+            flattened = baseImage
+        } else {
+            guard let rendered = renderFlattened(baseImage: baseImage,
+                                                 annotations: annotations,
+                                                 pixelated: pixelated,
+                                                 scale: scale,
+                                                 annotationShadowsEnabled: annotationShadowsEnabled)
+            else { return nil }
+            flattened = rendered
+        }
 
         var result = flattened
-        if case .none = fill {
+        if isFillNone {
             // Rounded corners without a backdrop become transparency.
             if corner > 0, let rounded = roundedAlpha(flattened, corner: corner) {
                 result = rounded
@@ -401,7 +425,7 @@ enum ScreenshotRenderer {
                                       height: image.height,
                                       bitsPerComponent: 8,
                                       bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      space: bestColorSpace(for: image),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
@@ -424,7 +448,7 @@ enum ScreenshotRenderer {
                                       height: height,
                                       bitsPerComponent: 8,
                                       bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      space: bestColorSpace(for: baseImage),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.draw(baseImage, in: CGRect(x: 0, y: 0, width: width, height: height))
@@ -453,9 +477,9 @@ enum ScreenshotRenderer {
         guard let context = CGContext(data: nil,
                                       width: width,
                                       height: height,
-                                      bitsPerComponent: 8,
+                                       bitsPerComponent: 8,
                                       bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      space: bestColorSpace(for: image),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
 
@@ -518,7 +542,8 @@ enum ScreenshotRenderer {
                 let colors = components.map {
                     CGColor(srgbRed: $0.red, green: $0.green, blue: $0.blue, alpha: 1)
                 } as CFArray
-                if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+                if let gradient = CGGradient(colorsSpace: colorSpace,
                                              colors: colors,
                                              locations: [0, 1]) {
                     context.drawLinearGradient(gradient,
@@ -550,7 +575,7 @@ enum ScreenshotRenderer {
                                       height: Int(size.height),
                                       bitsPerComponent: 8,
                                       bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      space: bestColorSpace(for: image),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.interpolationQuality = .high

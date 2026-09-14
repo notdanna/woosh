@@ -214,10 +214,10 @@ enum MetricFormat {
 
     // MARK: Watts & percentages
 
-    /// Power, e.g. "8.5 W" / "23 W" (one decimal under 10, none above).
+    /// Power, e.g. "8.5 W" / "23.4 W" (one decimal under 100, none above).
     static func watts(_ value: Double) -> String {
         let magnitude = abs(value)
-        return magnitude < 10 ? String(format: "%.1f W", value) : String(format: "%.0f W", value)
+        return magnitude < 100 ? String(format: "%.1f W", value) : String(format: "%.0f W", value)
     }
 
     /// Compact power for the menu bar, e.g. "9W".

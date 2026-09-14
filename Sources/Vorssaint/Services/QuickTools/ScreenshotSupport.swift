@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -641,6 +642,37 @@ enum ScreenshotSupport {
                               imageSize.width),
                        y: min(max(point.y / viewSize.height * imageSize.height, 0),
                               imageSize.height))
+    }
+
+    /// Accurately extracts the color of a pixel from an image in standard sRGB space.
+    /// Uses CoreGraphics drawing into an sRGB context to ensure standard color
+    /// management and avoid the gamma shift introduced by `NSBitmapImageRep.colorAt`.
+    static func samplePixelColor(from image: CGImage, at pixelPoint: CGPoint) -> NSColor? {
+        guard image.width > 0, image.height > 0 else { return nil }
+        let x = min(max(Int(pixelPoint.x.rounded(.down)), 0), image.width - 1)
+        let y = min(max(Int(pixelPoint.y.rounded(.down)), 0), image.height - 1)
+        guard let cropped = image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)) else { return nil }
+        var raw = [UInt8](repeating: 0, count: 4)
+        guard let srgbSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: &raw,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: srgbSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+              )
+        else { return nil }
+        context.draw(cropped, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let a = CGFloat(raw[3]) / 255.0
+        guard a > 0 else {
+            return NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0)
+        }
+        let r = min(max((CGFloat(raw[0]) / 255.0) / a, 0), 1)
+        let g = min(max((CGFloat(raw[1]) / 255.0) / a, 0), 1)
+        let b = min(max((CGFloat(raw[2]) / 255.0) / a, 0), 1)
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: a)
     }
 
     // MARK: - Quick preview placement

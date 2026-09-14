@@ -596,6 +596,7 @@ extension AppFeature {
         switch self {
         case .switcher: return s.switcherSection
         case .dockPreview: return s.dockPreviewName
+        case .instantSpaces: return "Instant Spaces"
         case .dockClick: return hub.titleDockClick
         case .windowMaximizer: return s.windowMaximizeName
         case .windowLayout: return FeatureStrings.windowLayout(L10n.shared.language).title
@@ -654,6 +655,7 @@ extension AppFeature {
     func hubDescription(_ hub: FeatureHubStrings) -> String {
         switch self {
         case .switcher: return hub.descSwitcher
+        case .instantSpaces: return "Instant desktop space switcher via trackpad swipe and hotkeys"
         case .dockPreview: return hub.descDockPreview
         case .dockClick: return hub.descDockClick
         case .windowMaximizer: return hub.descWindowMaximizer

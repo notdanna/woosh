@@ -1205,6 +1205,25 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         return true
     }
 
+    final class LazyTIFFProvider: NSObject, NSPasteboardItemDataProvider {
+        private let image: CGImage
+
+        init(image: CGImage) {
+            self.image = image
+            super.init()
+        }
+
+        func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+            guard type == .tiff else { return }
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            if let data = bitmap.tiffRepresentation {
+                item.setData(data, forType: .tiff)
+            }
+        }
+    }
+
+    private static var activePasteboardProvider: LazyTIFFProvider?
+
     @discardableResult
     static func copyFile(_ url: URL, payload: ClipboardPayload? = nil) -> Bool {
         let pasteboard = NSPasteboard.general
@@ -1214,7 +1233,11 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         if let png = payload?.png {
             item.setData(png, forType: .png)
         }
-        if let tiff = payload?.tiff {
+        if let image = payload?.image {
+            let provider = LazyTIFFProvider(image: image)
+            activePasteboardProvider = provider
+            item.setDataProvider(provider, forTypes: [.tiff])
+        } else if let tiff = payload?.tiff {
             item.setData(tiff, forType: .tiff)
         }
         return pasteboard.writeObjects([item])
@@ -1222,7 +1245,20 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
 
     struct ClipboardPayload: Sendable {
         let png: Data?
-        let tiff: Data?
+        let image: CGImage?
+        private let eagerTiff: Data?
+
+        init(png: Data?, image: CGImage? = nil, tiff: Data? = nil) {
+            self.png = png
+            self.image = image
+            self.eagerTiff = tiff
+        }
+
+        var tiff: Data? {
+            if let eagerTiff { return eagerTiff }
+            guard let image else { return nil }
+            return NSBitmapImageRep(cgImage: image).tiffRepresentation
+        }
     }
 
     static func clipboardPayload(from image: CGImage) -> ClipboardPayload {
@@ -1230,8 +1266,7 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     }
 
     static func clipboardPayload(from image: CGImage, png: Data?) -> ClipboardPayload {
-        let bitmap = NSBitmapImageRep(cgImage: image)
-        return ClipboardPayload(png: png, tiff: bitmap.tiffRepresentation)
+        ClipboardPayload(png: png, image: image)
     }
 
     @discardableResult
@@ -1242,7 +1277,11 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         if let png = payload.png {
             item.setData(png, forType: .png)
         }
-        if let tiff = payload.tiff {
+        if let image = payload.image {
+            let provider = LazyTIFFProvider(image: image)
+            activePasteboardProvider = provider
+            item.setDataProvider(provider, forTypes: [.tiff])
+        } else if let tiff = payload.tiff {
             item.setData(tiff, forType: .tiff)
         }
         return pasteboard.writeObjects([item])

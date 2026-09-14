@@ -1402,6 +1402,33 @@ final class WindowLayoutService: ObservableObject {
 
     private func gestureTarget(at point: CGPoint,
                                requiresResize: Bool) -> WindowGestureTarget? {
+        // Fast path: query WindowServer front-to-back candidates directly (< 0.1 ms).
+        // This avoids slow synchronous accessibility tree traversal (AXUIElementCopyElementAtPosition)
+        // on the main run loop, works instantly on background windows and complex apps (Chrome/VS Code/Slack),
+        // matching the behavior of yabai / Linux alt-drag.
+        if let candidate = WindowServerWindowHitTest.candidate(at: point),
+           let app = NSRunningApplication(processIdentifier: candidate.pid),
+           !app.isTerminated, app.activationPolicy == .regular {
+            let axApp = AXUIElementCreateApplication(candidate.pid)
+            AXUIElementSetMessagingTimeout(axApp, 0.15)
+            if let targetWindow = windowsAttribute(axApp)?.first(where: {
+                AXWindowResolver.windowID(for: $0) == candidate.windowID
+            }) {
+                AXUIElementSetMessagingTimeout(targetWindow, 0.15)
+                if role(of: targetWindow) == (kAXWindowRole as String),
+                   !boolAttribute(targetWindow, "AXFullScreen"),
+                   canSetPosition(on: targetWindow),
+                   (!requiresResize || canSetSize(on: targetWindow)) {
+                    let resolvedFrame = frame(of: targetWindow)
+                        ?? WindowLayoutFrame(origin: candidate.frame.origin, size: candidate.frame.size)
+                    if resolvedFrame.size.width > 80, resolvedFrame.size.height > 80 {
+                        return WindowGestureTarget(window: targetWindow, app: app, frame: resolvedFrame)
+                    }
+                }
+            }
+        }
+
+        // Fallback to system-wide Accessibility hit-test if candidate lookup did not succeed.
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system, 0.25)
         var rawElement: AXUIElement?

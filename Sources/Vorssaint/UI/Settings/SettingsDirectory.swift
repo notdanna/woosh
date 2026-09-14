@@ -82,6 +82,8 @@ enum SettingsDirectory {
                                                  FeatureStrings.windowLayout(language).gestureResize]),
                 SettingsDirectoryItem(page: .autoQuit, title: s.autoQuitName, icon: "xmark.rectangle",
                                       keywords: [s.autoQuitEnable]),
+                SettingsDirectoryItem(page: .instantSpaces, title: "Instant Spaces", icon: "square.split.2x1",
+                                      keywords: ["instant spaces", "spaces", "trackpad", "swipe", "switch"]),
             ]),
             (categories.files, [
                 SettingsDirectoryItem(page: .clipboard, title: FeatureStrings.clipboard(language).title,

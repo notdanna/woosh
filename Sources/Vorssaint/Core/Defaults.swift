@@ -57,6 +57,14 @@ enum DefaultsKey {
     static let mouseButtonExceptions = "mouseButtonExceptions"
     static let middleClickExceptions = "middleClickExceptions"
     static let switcherEnabled = "switcherEnabled"
+    static let instantSpacesEnabled = "instantSpacesEnabled"
+    static let instantSpacesTrackpadSwipeEnabled = "instantSpacesTrackpadSwipeEnabled"
+    static let instantSpacesSwipeDirectionReversed = "instantSpacesSwipeDirectionReversed"
+    static let instantSpacesSpaceNumberingReversed = "instantSpacesSpaceNumberingReversed"
+    static let instantSpacesGestureSpeed = "instantSpacesGestureSpeed"
+    static let instantSpacesOverlayDetectionEnabled = "instantSpacesOverlayDetectionEnabled"
+    static let instantSpacesHotkeysEnabled = "instantSpacesHotkeysEnabled"
+    static let instantSpacesShowMenuBarBadge = "instantSpacesShowMenuBarBadge"
     static let switcherShortcut = "switcherShortcut"      // GlobalShortcut storage value
     static let switcherWindowShortcut = "switcherWindowShortcut" // GlobalShortcut storage value
     static let switcherIconRowMode = "switcherIconRowMode"
@@ -763,6 +771,14 @@ enum Defaults {
         DefaultsKey.mouseButtonExceptions: [String](),
         DefaultsKey.middleClickExceptions: [String](),
         DefaultsKey.switcherEnabled: true,
+        DefaultsKey.instantSpacesEnabled: true,
+        DefaultsKey.instantSpacesTrackpadSwipeEnabled: true,
+        DefaultsKey.instantSpacesSwipeDirectionReversed: false,
+        DefaultsKey.instantSpacesSpaceNumberingReversed: false,
+        DefaultsKey.instantSpacesGestureSpeed: 2000.0,
+        DefaultsKey.instantSpacesOverlayDetectionEnabled: true,
+        DefaultsKey.instantSpacesHotkeysEnabled: true,
+        DefaultsKey.instantSpacesShowMenuBarBadge: true,
         DefaultsKey.switcherShortcut: "command:48",
         DefaultsKey.switcherWindowShortcut: GlobalShortcut.switcherWindowDefault.storageValue,
         DefaultsKey.switcherIconRowMode: false,

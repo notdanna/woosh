@@ -124,6 +124,7 @@ struct SettingsView: View {
         case .monitor: MonitorSettings()
         case .mouse: MouseSettings()
         case .switcher: SwitcherSettings()
+        case .instantSpaces: InstantSpacesSettings()
         case .keyDebounce: KeyboardDebounceSettings()
         case .superKey: SuperKeySettings()
         case .cutPaste: CutPasteSettings()

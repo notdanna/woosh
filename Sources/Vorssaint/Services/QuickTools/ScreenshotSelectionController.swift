@@ -365,7 +365,7 @@ final class ScreenshotSelectionController {
     }
 
     fileprivate func confirmRegion(_ viewRect: CGRect, on panel: ScreenshotOverlayPanel) {
-        guard viewRect.width >= 1, viewRect.height >= 1 else { return }
+        guard viewRect.width >= 4, viewRect.height >= 4 else { return }
         guard activeMode != .color else { return }
         markCapturePending()
         Self.lastRegion = (panel.displayID, viewRect)
@@ -466,11 +466,7 @@ final class ScreenshotSelectionController {
             fromView: viewPoint,
             viewSize: panel.screenFrame.size,
             imageSize: CGSize(width: image.width, height: image.height))
-        let x = min(max(Int(point.x.rounded(.down)), 0), image.width - 1)
-        let y = min(max(Int(point.y.rounded(.down)), 0), image.height - 1)
-        guard let pixel = image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)),
-              let color = NSBitmapImageRep(cgImage: pixel).colorAt(x: 0, y: 0)
-        else {
+        guard let color = ScreenshotSupport.samplePixelColor(from: image, at: point) else {
             finish(.failed)
             return
         }
@@ -489,24 +485,24 @@ final class ScreenshotSelectionController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: 120_000_000)
-            guard var image = await ScreenshotCaptureEngine.captureDisplay(
-                displayID,
-                includePointer: self.includePointer,
-                hideVorssaintWindows: self.hideVorssaintWindows,
-                protectedWindowIDs: self.captureExcludedWindowIDs)
-            else {
+            let capturedImage: CGImage?
+            if let pixelRect {
+                capturedImage = await ScreenshotCaptureEngine.captureDisplayRegion(
+                    displayID: displayID,
+                    pixelRect: pixelRect,
+                    includePointer: self.includePointer,
+                    hideVorssaintWindows: self.hideVorssaintWindows,
+                    protectedWindowIDs: self.captureExcludedWindowIDs)
+            } else {
+                capturedImage = await ScreenshotCaptureEngine.captureDisplay(
+                    displayID,
+                    includePointer: self.includePointer,
+                    hideVorssaintWindows: self.hideVorssaintWindows,
+                    protectedWindowIDs: self.captureExcludedWindowIDs)
+            }
+            guard let image = capturedImage else {
                 self.finish(.failed)
                 return
-            }
-            if let pixelRect {
-                let clamped = ScreenshotSupport.clamp(
-                    pixelRect,
-                    to: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-                guard let cropped = image.cropping(to: clamped) else {
-                    self.finish(.failed)
-                    return
-                }
-                image = cropped
             }
             self.finish(.captured(Capture(image: image,
                                           scale: scale,
@@ -863,7 +859,7 @@ private final class ScreenshotOverlayView: NSView {
             controller.selectionInProgress = false
             return
         }
-        guard selection.width >= 2, selection.height >= 2 else {
+        guard selection.width >= 4, selection.height >= 4 else {
             selection = .zero
             controller.selectionInProgress = false
             needsDisplay = true
@@ -892,29 +888,31 @@ private final class ScreenshotOverlayView: NSView {
         else { return }
         let mouseIsOnThisScreen = panel.screenFrame.contains(NSEvent.mouseLocation)
 
-        let dimAlpha: CGFloat = frozenImage == nil ? 0.18 : 0.22
-        context.setFillColor(CGColor(gray: 0, alpha: dimAlpha))
-        if selection.width > 0, selection.height > 0 {
-            context.beginPath()
-            context.addRect(bounds)
-            context.addPath(CGPath(roundedRect: selection,
-                                   cornerWidth: 8,
-                                   cornerHeight: 8,
-                                   transform: nil))
-            context.fillPath(using: .evenOdd)
-            drawSelectionChrome(context, pixelScale: panel.pixelScale)
-        } else if dragOrigin == nil, hoveredWindow != nil {
-            if let hovered = hoveredWindow {
+        let dimAlpha: CGFloat = controller.isPickingColor ? 0 : (frozenImage == nil ? 0.18 : 0.22)
+        if dimAlpha > 0 {
+            context.setFillColor(CGColor(gray: 0, alpha: dimAlpha))
+            if selection.width > 0, selection.height > 0 {
                 context.beginPath()
                 context.addRect(bounds)
-                context.addRect(hovered.frame)
+                context.addPath(CGPath(roundedRect: selection,
+                                       cornerWidth: 8,
+                                       cornerHeight: 8,
+                                       transform: nil))
                 context.fillPath(using: .evenOdd)
-                drawWindowHighlight(context, rect: hovered.frame)
+                drawSelectionChrome(context, pixelScale: panel.pixelScale)
+            } else if dragOrigin == nil, hoveredWindow != nil {
+                if let hovered = hoveredWindow {
+                    context.beginPath()
+                    context.addRect(bounds)
+                    context.addRect(hovered.frame)
+                    context.fillPath(using: .evenOdd)
+                    drawWindowHighlight(context, rect: hovered.frame)
+                } else {
+                    context.fill(bounds)
+                }
             } else {
                 context.fill(bounds)
             }
-        } else {
-            context.fill(bounds)
         }
 
         if controller.loupeEnabled, !controller.spaceIsDown,
@@ -1047,6 +1045,63 @@ private final class ScreenshotOverlayView: NSView {
         context.setLineWidth(1.5)
         context.strokePath()
         context.restoreGState()
+
+        if let controller, controller.isPickingColor,
+           let color = ScreenshotSupport.samplePixelColor(from: image, at: pixelPoint) {
+            drawColorLoupeBadge(color: color, frame: frame)
+        }
+    }
+
+    private func drawColorLoupeBadge(color: NSColor, frame: CGRect) {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return }
+        let format = ColorCopyFormat.sanitized(
+            UserDefaults.standard.string(forKey: DefaultsKey.colorPickerFormat) ?? "hex"
+        )
+        let bareHex = UserDefaults.standard.bool(forKey: DefaultsKey.colorPickerBareHex)
+        let text = QuickToolsSupport.colorString(red: srgb.redComponent,
+                                                 green: srgb.greenComponent,
+                                                 blue: srgb.blueComponent,
+                                                 format: format,
+                                                 bareHex: bareHex)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.white,
+        ]
+        let textSize = text.size(withAttributes: attributes)
+        let swatchSize: CGFloat = 11
+        let spacing: CGFloat = 6
+        let horizontalPadding: CGFloat = 8
+        let verticalPadding: CGFloat = 4
+        let contentWidth = swatchSize + spacing + textSize.width
+        let badgeWidth = contentWidth + horizontalPadding * 2
+        let badgeHeight = max(swatchSize, textSize.height) + verticalPadding * 2
+
+        var badgeY = frame.maxY + 6
+        if badgeY + badgeHeight > bounds.maxY - 6 {
+            badgeY = frame.minY - badgeHeight - 6
+        }
+        let badgeX = min(max(frame.midX - badgeWidth / 2, 6), bounds.maxX - badgeWidth - 6)
+        let badgeRect = CGRect(x: badgeX, y: badgeY, width: badgeWidth, height: badgeHeight)
+
+        let bgPath = NSBezierPath(roundedRect: badgeRect, xRadius: 5, yRadius: 5)
+        NSColor(white: 0, alpha: 0.78).setFill()
+        bgPath.fill()
+
+        let swatchRect = CGRect(x: badgeRect.minX + horizontalPadding,
+                                y: badgeRect.midY - swatchSize / 2,
+                                width: swatchSize,
+                                height: swatchSize)
+        let swatchPath = NSBezierPath(roundedRect: swatchRect, xRadius: 2.5, yRadius: 2.5)
+        srgb.setFill()
+        swatchPath.fill()
+        NSColor(white: 1, alpha: 0.35).setStroke()
+        swatchPath.lineWidth = 0.8
+        swatchPath.stroke()
+
+        let textPoint = CGPoint(x: swatchRect.maxX + spacing,
+                                y: badgeRect.midY - textSize.height / 2)
+        text.draw(at: textPoint, withAttributes: attributes)
     }
 
     private func captureLoupeFrame(near point: CGPoint, size: CGFloat) -> CGRect {

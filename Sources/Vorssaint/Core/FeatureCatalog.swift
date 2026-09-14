@@ -14,7 +14,7 @@ import Foundation
 /// keys are never touched.
 enum AppFeature: String, CaseIterable {
     // Windows and Dock
-    case switcher, dockPreview, dockClick, windowMaximizer, windowLayout, autoQuit
+    case switcher, instantSpaces, dockPreview, dockClick, windowMaximizer, windowLayout, autoQuit
     // Mouse and keyboard
     case scrollInverter, focusFollowsMouse, smoothScroll, mouseNavigation, mouseButtonShortcuts, middleClick,
          keyboardDebounce, textSnippets, superKey
@@ -86,7 +86,7 @@ extension AppFeature {
 
     var group: FeatureGroup {
         switch self {
-        case .switcher, .dockPreview, .dockClick, .windowMaximizer, .windowLayout, .autoQuit:
+        case .switcher, .instantSpaces, .dockPreview, .dockClick, .windowMaximizer, .windowLayout, .autoQuit:
             return .windowsDock
         case .scrollInverter, .focusFollowsMouse, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
              .keyboardDebounce, .textSnippets, .superKey:
@@ -111,6 +111,7 @@ extension AppFeature {
     var symbolName: String {
         switch self {
         case .switcher: return "rectangle.on.rectangle"
+        case .instantSpaces: return "square.split.2x1"
         case .dockPreview: return "dock.rectangle"
         case .dockClick: return "dock.arrow.down.rectangle"
         case .windowMaximizer: return "arrow.up.left.and.arrow.down.right"
@@ -183,6 +184,7 @@ extension AppFeature {
     var enabledKeys: [String] {
         switch self {
         case .switcher: return [DefaultsKey.switcherEnabled]
+        case .instantSpaces: return [DefaultsKey.instantSpacesEnabled]
         case .dockPreview: return [DefaultsKey.dockPreviewEnabled]
         case .dockClick: return [DefaultsKey.dockClickMinimize,
                                  DefaultsKey.dockClickHide,
@@ -229,7 +231,7 @@ extension AppFeature {
         switch self {
         case .scrollInverter, .focusFollowsMouse, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
              .keyboardDebounce, .textSnippets, .superKey, .dockClick, .windowMaximizer, .windowLayout,
-             .autoQuit, .cleaningMode, .pastePlain, .radialMenu,
+             .autoQuit, .cleaningMode, .pastePlain, .radialMenu, .instantSpaces,
              // The bar reads other apps' menus and windows and types at the
              // caret, all of it through Accessibility.
              .commandBar:

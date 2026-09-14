@@ -8,7 +8,7 @@ import Foundation
 /// below and the unit tests can reason about pages without pulling UI in.
 enum SettingsPage: Hashable {
     case general, features, energy, monitor
-    case mouse, switcher, keyDebounce, superKey, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, radialMenu, commandBar, killProcess
+    case mouse, switcher, instantSpaces, keyDebounce, superKey, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, radialMenu, commandBar, killProcess
     case shortcuts, advanced, about, releaseNotes, support
 }
 
@@ -131,6 +131,7 @@ extension AppFeature {
     var settingsDestination: FeatureSettingsDestination {
         switch self {
         case .switcher: return FeatureSettingsDestination(.switcher, sectionAnchor: .switcher)
+        case .instantSpaces: return FeatureSettingsDestination(.instantSpaces)
         case .dockPreview, .dockClick:
             return FeatureSettingsDestination(.switcher, sectionAnchor: .dock)
         case .windowMaximizer:
@@ -234,6 +235,7 @@ enum FeatureVisibilitySupport {
         case .mouse: return [.scrollInverter, .focusFollowsMouse, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts,
                              .middleClick]
         case .switcher: return [.switcher, .dockPreview, .dockClick]
+        case .instantSpaces: return [.instantSpaces]
         case .windowLayout: return [.windowLayout]
         case .autoQuit: return [.autoQuit]
         case .clipboard: return [.clipboardHistory, .pastePlain, .finderCutPaste]

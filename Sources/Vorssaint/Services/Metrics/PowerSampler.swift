@@ -79,16 +79,45 @@ final class PowerSampler {
             reading.hasBattery = true
             reading.externalConnected = (props["ExternalConnected"] as? Bool) ?? false
             reading.isCharging = (props["IsCharging"] as? Bool) ?? false
-            reading.timeRemainingSeconds = BatteryTimeSupport.remainingSeconds(
-                timeToEmptyMinutes: timeToEmptyMinutes(),
-                externalConnected: reading.externalConnected,
-                isCharging: reading.isCharging)
+            if !reading.externalConnected, !reading.isCharging {
+                reading.timeRemainingSeconds = BatteryTimeSupport.remainingSeconds(
+                    timeToEmptyMinutes: timeToEmptyMinutes(),
+                    externalConnected: false,
+                    isCharging: false)
+            }
 
             let voltageMv = (props["Voltage"] as? Int) ?? 0
             let amperageMa = (props["Amperage"] as? Int) ?? (props["InstantAmperage"] as? Int) ?? 0
-            if voltageMv > 0, amperageMa != 0 {
-                // Power = V x I, signed by the amperage (negative while discharging).
-                reading.batteryWatts = (Double(voltageMv) / 1000.0) * (Double(amperageMa) / 1000.0)
+            if voltageMv > 0 {
+                if amperageMa != 0 {
+                    // Power = V x I, signed by the amperage (negative while discharging).
+                    reading.batteryWatts = (Double(voltageMv) / 1000.0) * (Double(amperageMa) / 1000.0)
+                } else if reading.externalConnected {
+                    // Connected to external power and battery current is idle/full.
+                    reading.batteryWatts = 0.0
+                }
+            }
+
+            let telemetry = props["PowerTelemetryData"] as? [String: Any]
+
+            // Adapter real-time draw: SMC PDTR on Intel, or PowerTelemetryData on Apple Silicon.
+            if reading.adapterWatts == nil, reading.externalConnected {
+                if let powerIn = telemetry.flatMap({ batteryInt("SystemPowerIn", in: $0) }), powerIn > 0 {
+                    reading.adapterWatts = Double(powerIn) / 1000.0
+                }
+            }
+
+            // System total load: SMC PSTR on Intel, or PowerTelemetryData / differential on Apple Silicon.
+            if reading.systemWatts == nil, reading.externalConnected {
+                if let systemLoad = telemetry.flatMap({ batteryInt("SystemLoad", in: $0) }), systemLoad > 0 {
+                    reading.systemWatts = Double(systemLoad) / 1000.0
+                } else if let adapterWatts = reading.adapterWatts {
+                    let batteryCharging = max(0, reading.batteryWatts ?? 0)
+                    let deduced = adapterWatts - batteryCharging
+                    if deduced > 0 {
+                        reading.systemWatts = deduced
+                    }
+                }
             }
 
             if let adapter = props["AdapterDetails"] as? [String: Any],
