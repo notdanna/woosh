@@ -55,6 +55,36 @@ enum SpaceSwitcherSupport {
         return unsafeBitCast(s, to: ManagedDisplayGetCurrentSpaceFunction.self)
     }()
 
+    private typealias CursorVisibilityFunction = @convention(c) (ConnectionID) -> Int32
+    private static let cgsShowCursorFn: CursorVisibilityFunction? = {
+        guard let s = symbol("CGSShowCursor") ?? symbol("SLSShowCursor") else { return nil }
+        return unsafeBitCast(s, to: CursorVisibilityFunction.self)
+    }()
+
+    private static let cgsUnobscureCursorFn: CursorVisibilityFunction? = {
+        guard let s = symbol("CGSUnobscureCursor") ?? symbol("SLSUnobscureCursor") else { return nil }
+        return unsafeBitCast(s, to: CursorVisibilityFunction.self)
+    }()
+
+    static func ensureCursorVisible() {
+        if connection != 0 {
+            _ = cgsUnobscureCursorFn?(connection)
+            _ = cgsShowCursorFn?(connection)
+        }
+
+        let tempEvent = CGEvent(source: nil)
+        let location = tempEvent?.location ?? .zero
+        if location != .zero {
+            CGWarpMouseCursorPosition(location)
+        }
+
+        if NSEvent.pressedMouseButtons == 0 && location != .zero {
+            if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left) {
+                moveEvent.post(tap: .cgSessionEventTap)
+            }
+        }
+    }
+
     static func getActiveMenuBarDisplayIdentifier() -> String? {
         guard connection != 0, let copyFn = copyActiveMenuBarDisplayIdentifierFn else { return nil }
         return copyFn(connection)?.takeRetainedValue() as String?

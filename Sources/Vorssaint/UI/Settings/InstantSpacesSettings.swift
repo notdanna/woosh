@@ -74,18 +74,52 @@ struct InstantSpacesSettings: View {
                 .disabled(!trackpadSwipe || !enabled)
             }
 
-            Section("Keyboard Shortcuts") {
-                Toggle("Enable direct space hotkeys (⌥1 ... ⌥9)", isOn: $hotkeysEnabled)
+            Section("Keyboard Shortcuts & Commands") {
+                Toggle("Enable keyboard hotkeys", isOn: $hotkeysEnabled)
                     .onChange(of: hotkeysEnabled) { _, _ in
                         InstantSpacesService.shared.syncWithPreferences()
                     }
-                Text("Press Option + 1 through Option + 9 (⌥1 – ⌥9) to switch directly to that space index.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 Toggle("Reverse space numbering mapping", isOn: $spaceNumberingReversed)
                     .disabled(!hotkeysEnabled || !enabled)
                 Text("Enable if your Mission Control spaces order is inverted relative to system CGS indexing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !service.activeBindings.isEmpty {
+                    Text("Configured Shortcuts:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(service.activeBindings) { binding in
+                        HStack {
+                            Text(binding.label)
+                                .font(.system(.body, design: .monospaced))
+                                .bold()
+                            Spacer()
+                            if let cmd = binding.command {
+                                Text(cmd)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            } else if let sp = binding.targetSpaceIndex {
+                                Text("Space \(sp + 1)")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                HStack {
+                    Button("Open Configuration File…") {
+                        InstantSpacesConfigParser.openConfigFile()
+                    }
+                    Button("Reload Config") {
+                        InstantSpacesService.shared.reloadConfig()
+                    }
+                }
+                .controlSize(.small)
+
+                Text("Custom space shortcuts and shell command triggers (e.g. opt+return = open -n -a iTerm) are configured in ~/.config/swapk/swapk.conf.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

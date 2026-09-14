@@ -4,16 +4,20 @@
 import AppKit
 import Foundation
 
-final class SpaceMenuBarIndicator {
+final class SpaceMenuBarIndicator: NSObject, NSMenuDelegate {
     static let shared = SpaceMenuBarIndicator()
 
     private var statusItem: NSStatusItem?
+    private let menu = NSMenu()
     private var iconCache: [UInt32: NSImage] = [:]
     private var workspaceObserver: NSObjectProtocol?
     private var currentSpace: UInt32 = 1
     private var totalSpaces: UInt32 = 1
 
-    private init() {}
+    private override init() {
+        super.init()
+        menu.delegate = self
+    }
 
     func syncWithPreferences(isEnabled: Bool) {
         let wanted = isEnabled && UserDefaults.standard.bool(forKey: DefaultsKey.instantSpacesShowMenuBarBadge)
@@ -38,9 +42,7 @@ final class SpaceMenuBarIndicator {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.toolTip = "Instant Spaces"
-        item.button?.target = self
-        item.button?.action = #selector(statusItemClicked)
-        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        item.menu = menu
         statusItem = item
 
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -120,13 +122,72 @@ final class SpaceMenuBarIndicator {
         return image
     }
 
-    @objc private func statusItemClicked() {
-        guard let button = statusItem?.button else { return }
-        let menu = NSMenu()
+    // MARK: - NSMenuDelegate
 
-        let headerItem = NSMenuItem(title: "Space \(currentSpace) of \(totalSpaces)", action: nil, keyEquivalent: "")
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+
+        let title = "Instant Spaces: Space \(currentSpace) of \(totalSpaces)"
+        let headerItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         headerItem.isEnabled = false
         menu.addItem(headerItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        if totalSpaces > 1 {
+            for i in 1...totalSpaces {
+                let item = NSMenuItem(
+                    title: "Switch to Space \(i)",
+                    action: #selector(switchToSpaceMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                item.tag = Int(i - 1)
+                item.target = self
+                if i == currentSpace {
+                    item.state = .on
+                }
+                menu.addItem(item)
+            }
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        let bindings = InstantSpacesService.shared.activeBindings
+        if !bindings.isEmpty {
+            let shortcutsHeader = NSMenuItem(title: "Configured Shortcuts:", action: nil, keyEquivalent: "")
+            shortcutsHeader.isEnabled = false
+            menu.addItem(shortcutsHeader)
+
+            for b in bindings {
+                let actionDesc: String
+                if let cmd = b.command {
+                    actionDesc = "➜ \(cmd)"
+                } else if let sp = b.targetSpaceIndex {
+                    actionDesc = "➜ Space \(sp + 1)"
+                } else {
+                    actionDesc = ""
+                }
+                let item = NSMenuItem(title: "  \(b.label)  \(actionDesc)", action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            }
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        let openConfigItem = NSMenuItem(
+            title: "Open Configuration File…",
+            action: #selector(openConfigFile),
+            keyEquivalent: ""
+        )
+        openConfigItem.target = self
+        menu.addItem(openConfigItem)
+
+        let reloadItem = NSMenuItem(
+            title: "Reload Configuration",
+            action: #selector(reloadConfig),
+            keyEquivalent: "r"
+        )
+        reloadItem.target = self
+        menu.addItem(reloadItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -137,10 +198,18 @@ final class SpaceMenuBarIndicator {
         )
         settingsItem.target = self
         menu.addItem(settingsItem)
+    }
 
-        button.menu = menu
-        button.performClick(nil)
-        button.menu = nil
+    @objc private func switchToSpaceMenuItem(_ sender: NSMenuItem) {
+        InstantSpacesService.shared.switchToIndex(UInt32(sender.tag))
+    }
+
+    @objc private func openConfigFile() {
+        InstantSpacesConfigParser.openConfigFile()
+    }
+
+    @objc private func reloadConfig() {
+        InstantSpacesService.shared.reloadConfig()
     }
 
     @objc private func openSettings() {

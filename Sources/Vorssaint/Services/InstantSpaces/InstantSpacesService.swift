@@ -4,12 +4,15 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 
 final class InstantSpacesService: ObservableObject {
     static let shared = InstantSpacesService()
 
     @Published private(set) var isRunning = false
+    @Published private(set) var activeBindings: [InstantSpacesHotkey] = []
+    private(set) var loadedConfig = InstantSpacesConfigParser.LoadedConfig()
 
     private static let kCGSEventTypeField = CGEventField(rawValue: 55)!
     private static let kCGEventGestureHIDType = CGEventField(rawValue: 110)!
@@ -48,6 +51,11 @@ final class InstantSpacesService: ObservableObject {
 
     private init() {}
 
+    func reloadConfig() {
+        loadedConfig = InstantSpacesConfigParser.loadConfig()
+        activeBindings = loadedConfig.bindings
+    }
+
     func syncWithPreferences() {
         let defaults = UserDefaults.standard
         let wanted = AppFeature.instantSpaces.isAvailable
@@ -63,6 +71,7 @@ final class InstantSpacesService: ObservableObject {
     }
 
     private func start() {
+        reloadConfig()
         guard !isRunning else {
             SpaceMenuBarIndicator.shared.syncWithPreferences(isEnabled: true)
             return
@@ -75,9 +84,10 @@ final class InstantSpacesService: ObservableObject {
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             SpacePredictionCache.shared.reset()
             SpaceMenuBarIndicator.shared.refresh()
+            self?.restoreCursorVisibility()
         }
 
         isRunning = true
@@ -215,11 +225,13 @@ final class InstantSpacesService: ObservableObject {
                 }
                 swipeTracking = false
                 swipeFired = false
+                restoreCursorVisibility()
                 return nil
 
             case .cancelled:
                 swipeTracking = false
                 swipeFired = false
+                restoreCursorVisibility()
                 return nil
             }
         }
@@ -281,32 +293,28 @@ final class InstantSpacesService: ObservableObject {
             return Unmanaged.passUnretained(event)
         }
 
-        let flags = event.flags.intersection([.maskCommand, .maskShift, .maskControl, .maskAlternate])
-        // Default space switching modifier: Option (maskAlternate)
-        guard flags == .maskAlternate else {
-            return Unmanaged.passUnretained(event)
-        }
+        let relevantFlags: CGEventFlags = [.maskCommand, .maskShift, .maskControl, .maskAlternate]
+        let flags = event.flags.intersection(relevantFlags)
+        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
 
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        // Key codes for 1..9 on macOS keyboard:
-        // 1: 18, 2: 19, 3: 20, 4: 21, 5: 23, 6: 22, 7: 26, 8: 28, 9: 25
-        let keyMap: [Int64: UInt32] = [
-            18: 0, // 1 -> Space 1 (index 0)
-            19: 1, // 2 -> Space 2
-            20: 2, // 3 -> Space 3
-            21: 3, // 4 -> Space 4
-            23: 4, // 5 -> Space 5
-            22: 5, // 6 -> Space 6
-            26: 6, // 7 -> Space 7
-            28: 7, // 8 -> Space 8
-            25: 8, // 9 -> Space 9
-        ]
-
-        if let targetSpaceIndex = keyMap[keyCode] {
-            DispatchQueue.main.async { [weak self] in
-                self?.switchToIndex(targetSpaceIndex)
+        for binding in activeBindings {
+            if binding.keyCode == keyCode && binding.flags == flags {
+                if let cmd = binding.command {
+                    let commandToRun = cmd
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let proc = Process()
+                        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+                        proc.arguments = ["-c", commandToRun]
+                        try? proc.run()
+                    }
+                    return nil
+                } else if let targetSpaceIndex = binding.targetSpaceIndex {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.switchToIndex(targetSpaceIndex)
+                    }
+                    return nil
+                }
             }
-            return nil // Swallow event
         }
 
         return Unmanaged.passUnretained(event)
@@ -316,7 +324,8 @@ final class InstantSpacesService: ObservableObject {
 
     private func speed() -> Double {
         let saved = UserDefaults.standard.double(forKey: DefaultsKey.instantSpacesGestureSpeed)
-        return saved > 0 ? saved : 2000.0
+        if saved > 0 { return saved }
+        return loadedConfig.gestureSpeed > 0 ? loadedConfig.gestureSpeed : 2000.0
     }
 
     private func postDockSwipe(phase: CGSGesturePhase, direction: SpaceDirection, velocity: Double) -> Bool {
@@ -386,6 +395,7 @@ final class InstantSpacesService: ObservableObject {
         if performSwitchGesture(direction: direction, velocity: speed()) {
             SpacePredictionCache.shared.setPrediction(for: info.displayID, index: target)
             SpaceMenuBarIndicator.shared.updateSpace(index: target, total: info.spaceCount)
+            restoreCursorVisibility()
         }
     }
 
@@ -419,6 +429,7 @@ final class InstantSpacesService: ObservableObject {
 
         SpacePredictionCache.shared.setPrediction(for: info.displayID, index: target)
         SpaceMenuBarIndicator.shared.updateSpace(index: target, total: info.spaceCount)
+        restoreCursorVisibility()
     }
 
     func switchLeft() {
@@ -427,5 +438,15 @@ final class InstantSpacesService: ObservableObject {
 
     func switchRight() {
         performDirectionalSwitch(direction: .right)
+    }
+
+    private func restoreCursorVisibility() {
+        SpaceSwitcherSupport.ensureCursorVisible()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            SpaceSwitcherSupport.ensureCursorVisible()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            SpaceSwitcherSupport.ensureCursorVisible()
+        }
     }
 }
