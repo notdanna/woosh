@@ -557,6 +557,13 @@ enum DefaultsKey {
     static let radialMenuMouseButton = "radialMenuMouseButton" // RadialMenuMouseTrigger.rawValue
     static let radialMenuActivationMode = "radialMenuActivationMode" // RadialMenuActivationMode.rawValue
     static let radialMenuItems = "radialMenuItems"        // Data: [RadialMenuItem] JSON
+    static let oneThingEnabled = "one_thing_enabled"
+    static let oneThingActiveTask = "one_thing_active_task"
+    static let oneThingHistory = "one_thing_history"
+    static let oneThingShortcutToggle = "one_thing_shortcut_toggle"
+    static let oneThingShortcutFromSelection = "one_thing_shortcut_from_selection"
+    static let oneThingShortcutComplete = "one_thing_shortcut_complete"
+    static let oneThingMaxChars = "one_thing_max_chars"
 
     // Dev-build only: force the "update available" UI for local testing.
     static let simulateUpdate = "simulateUpdate"
@@ -886,6 +893,13 @@ enum Defaults {
         DefaultsKey.killProcessGroupRelated: true,
         DefaultsKey.killProcessSortBy: "cpu",
         DefaultsKey.killProcessSortAscending: false,
+        DefaultsKey.oneThingEnabled: true,
+        DefaultsKey.oneThingActiveTask: "",
+        DefaultsKey.oneThingHistory: Data(),
+        DefaultsKey.oneThingShortcutToggle: "",
+        DefaultsKey.oneThingShortcutFromSelection: "",
+        DefaultsKey.oneThingShortcutComplete: "",
+        DefaultsKey.oneThingMaxChars: 40,
         DefaultsKey.panelUtilityCleaner: true,
         DefaultsKey.panelUtilityHomebrew: true,
         DefaultsKey.panelUtilityAppUpdates: true,
@@ -1192,6 +1206,10 @@ enum Defaults {
         DefaultsKey.windowLayoutShortcutBottomRightSixth: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutFullScreen: WindowLayoutAction.clearedShortcutStorageValue,
     ]
+
+    static func registerDefaults() {
+        register()
+    }
 
     static func register() {
         let defaults = UserDefaults.standard

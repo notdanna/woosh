@@ -169,6 +169,12 @@ enum SettingsDirectory {
                                                  FeatureStrings.radialMenu(language).kindApp,
                                                  FeatureStrings.radialMenu(language).kindMedia,
                                                  FeatureStrings.radialMenu(language).kindSubmenu]),
+                SettingsDirectoryItem(
+                    page: .oneThing,
+                    title: "One Thing",
+                    icon: "checklist",
+                    keywords: ["one thing", "task", "todo", "menubar", "focus", "priority"]
+                ),
             ]),
             (categories.app, [
                 SettingsDirectoryItem(page: .shortcuts, title: s.shortcutsPageTitle, icon: "command",
