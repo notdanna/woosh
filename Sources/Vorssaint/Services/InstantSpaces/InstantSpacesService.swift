@@ -12,7 +12,7 @@ final class InstantSpacesService: ObservableObject {
 
     @Published private(set) var isRunning = false
     @Published private(set) var activeBindings: [InstantSpacesHotkey] = []
-    private(set) var loadedConfig = InstantSpacesConfigParser.LoadedConfig()
+    @Published private(set) var customShortcuts: [InstantSpacesShortcutItem] = []
 
     private static let kCGSEventTypeField = CGEventField(rawValue: 55)!
     private static let kCGEventGestureHIDType = CGEventField(rawValue: 110)!
@@ -49,11 +49,39 @@ final class InstantSpacesService: ObservableObject {
     private var swipeTracking = false
     private var swipeFired = false
 
-    private init() {}
+    private init() {
+        reloadConfig()
+    }
 
     func reloadConfig() {
-        loadedConfig = InstantSpacesConfigParser.loadConfig()
-        activeBindings = loadedConfig.bindings
+        customShortcuts = InstantSpacesConfigManager.loadShortcuts()
+        activeBindings = InstantSpacesConfigManager.convertToHotkeys(customShortcuts)
+    }
+
+    func addShortcut(_ item: InstantSpacesShortcutItem) {
+        customShortcuts.append(item)
+        InstantSpacesConfigManager.saveShortcuts(customShortcuts)
+        activeBindings = InstantSpacesConfigManager.convertToHotkeys(customShortcuts)
+    }
+
+    func updateShortcut(_ item: InstantSpacesShortcutItem) {
+        if let idx = customShortcuts.firstIndex(where: { $0.id == item.id }) {
+            customShortcuts[idx] = item
+            InstantSpacesConfigManager.saveShortcuts(customShortcuts)
+            activeBindings = InstantSpacesConfigManager.convertToHotkeys(customShortcuts)
+        }
+    }
+
+    func deleteShortcut(id: UUID) {
+        customShortcuts.removeAll { $0.id == id }
+        InstantSpacesConfigManager.saveShortcuts(customShortcuts)
+        activeBindings = InstantSpacesConfigManager.convertToHotkeys(customShortcuts)
+    }
+
+    func resetShortcutsToDefaults() {
+        customShortcuts = InstantSpacesConfigManager.defaultShortcuts()
+        InstantSpacesConfigManager.saveShortcuts(customShortcuts)
+        activeBindings = InstantSpacesConfigManager.convertToHotkeys(customShortcuts)
     }
 
     func syncWithPreferences() {
@@ -324,8 +352,7 @@ final class InstantSpacesService: ObservableObject {
 
     private func speed() -> Double {
         let saved = UserDefaults.standard.double(forKey: DefaultsKey.instantSpacesGestureSpeed)
-        if saved > 0 { return saved }
-        return loadedConfig.gestureSpeed > 0 ? loadedConfig.gestureSpeed : 2000.0
+        return saved > 0 ? saved : 2000.0
     }
 
     private func postDockSwipe(phase: CGSGesturePhase, direction: SpaceDirection, velocity: Double) -> Bool {
@@ -442,11 +469,5 @@ final class InstantSpacesService: ObservableObject {
 
     private func restoreCursorVisibility() {
         SpaceSwitcherSupport.ensureCursorVisible()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            SpaceSwitcherSupport.ensureCursorVisible()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            SpaceSwitcherSupport.ensureCursorVisible()
-        }
     }
 }

@@ -65,6 +65,7 @@ enum DefaultsKey {
     static let instantSpacesOverlayDetectionEnabled = "instantSpacesOverlayDetectionEnabled"
     static let instantSpacesHotkeysEnabled = "instantSpacesHotkeysEnabled"
     static let instantSpacesShowMenuBarBadge = "instantSpacesShowMenuBarBadge"
+    static let instantSpacesShortcuts = "instantSpacesShortcuts"
     static let switcherShortcut = "switcherShortcut"      // GlobalShortcut storage value
     static let switcherWindowShortcut = "switcherWindowShortcut" // GlobalShortcut storage value
     static let switcherIconRowMode = "switcherIconRowMode"

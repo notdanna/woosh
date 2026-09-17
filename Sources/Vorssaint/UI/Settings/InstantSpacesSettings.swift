@@ -1,6 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 Vorssaint
-
+import Carbon.HIToolbox
 import SwiftUI
 
 struct InstantSpacesSettings: View {
@@ -86,40 +84,48 @@ struct InstantSpacesSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if !service.activeBindings.isEmpty {
-                    Text("Configured Shortcuts:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    ForEach(service.activeBindings) { binding in
-                        HStack {
-                            Text(binding.label)
-                                .font(.system(.body, design: .monospaced))
-                                .bold()
-                            Spacer()
-                            if let cmd = binding.command {
-                                Text(cmd)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                            } else if let sp = binding.targetSpaceIndex {
-                                Text("Space \(sp + 1)")
-                                    .foregroundStyle(.secondary)
-                            }
+                if hotkeysEnabled && enabled {
+                    if service.customShortcuts.isEmpty {
+                        Text("No shortcuts configured.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(service.customShortcuts) { item in
+                            InstantSpacesShortcutRow(
+                                item: item,
+                                onUpdate: { updated in
+                                    service.updateShortcut(updated)
+                                },
+                                onDelete: {
+                                    service.deleteShortcut(id: item.id)
+                                }
+                            )
                         }
                     }
+
+                    HStack {
+                        Button {
+                            let nextSpace = min(16, (service.customShortcuts.filter { $0.actionType == .space }.count) + 1)
+                            let newItem = InstantSpacesShortcutItem(
+                                shortcut: GlobalShortcut(keyCode: Int64(kVK_ANSI_N), modifiers: [.option, .shift]),
+                                actionType: .space,
+                                targetSpace: nextSpace
+                            )
+                            service.addShortcut(newItem)
+                        } label: {
+                            Label("Add Shortcut", systemImage: "plus")
+                        }
+
+                        Spacer()
+
+                        Button("Reset to Defaults") {
+                            service.resetShortcutsToDefaults()
+                        }
+                    }
+                    .controlSize(.small)
                 }
 
-                HStack {
-                    Button("Open Configuration File…") {
-                        InstantSpacesConfigParser.openConfigFile()
-                    }
-                    Button("Reload Config") {
-                        InstantSpacesService.shared.reloadConfig()
-                    }
-                }
-                .controlSize(.small)
-
-                Text("Custom space shortcuts and shell command triggers (e.g. opt+return = open -n -a iTerm) are configured in ~/.config/swapk/swapk.conf.")
+                Text("Assign hotkeys to switch directly to spaces or execute custom shell commands and launch applications (e.g. open -n -a iTerm).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -182,3 +188,96 @@ struct InstantSpacesSettings: View {
         currentSpaceInfo = SpaceSwitcherSupport.getSpaceInfo()
     }
 }
+
+private struct InstantSpacesShortcutRow: View {
+    let item: InstantSpacesShortcutItem
+    @ObservedObject private var l10n = L10n.shared
+    @State private var errorText: String?
+
+    var onUpdate: (InstantSpacesShortcutItem) -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                ShortcutRecorderButton(
+                    shortcut: item.shortcut,
+                    isEnabled: true,
+                    waitingTitle: l10n.s.shortcutPressKeys,
+                    emptyTitle: nil,
+                    clearAction: nil,
+                    notCapturedAction: { errorText = l10n.s.shortcutNotCaptured },
+                    recordingChanged: { recording in
+                        if recording { errorText = nil }
+                    },
+                    invalidAction: { errorText = l10n.s.shortcutInvalid },
+                    captureAction: { newShortcut in
+                        var updated = item
+                        updated.shortcut = newShortcut
+                        onUpdate(updated)
+                    }
+                )
+                .frame(width: 110)
+
+                Picker("", selection: Binding(
+                    get: { item.actionType },
+                    set: { newType in
+                        var updated = item
+                        updated.actionType = newType
+                        onUpdate(updated)
+                    }
+                )) {
+                    ForEach(InstantSpacesActionType.allCases) { type in
+                        Text(type.title).tag(type)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 145)
+
+                if item.actionType == .space {
+                    Picker("", selection: Binding(
+                        get: { item.targetSpace },
+                        set: { newSpace in
+                            var updated = item
+                            updated.targetSpace = newSpace
+                            onUpdate(updated)
+                        }
+                    )) {
+                        ForEach(1...16, id: \.self) { num in
+                            Text("Space \(num)").tag(num)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 95)
+                } else {
+                    TextField("e.g. open -n -a iTerm", text: Binding(
+                        get: { item.command },
+                        set: { newCmd in
+                            var updated = item
+                            updated.command = newCmd
+                            onUpdate(updated)
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                Spacer(minLength: 4)
+
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove Shortcut")
+            }
+
+            if let errorText {
+                Text(errorText)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+

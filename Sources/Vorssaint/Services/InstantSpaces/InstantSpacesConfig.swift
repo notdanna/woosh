@@ -3,12 +3,51 @@
 
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 import Darwin
 import Foundation
 
+enum InstantSpacesActionType: String, Codable, CaseIterable, Identifiable {
+    case space
+    case command
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .space: return "Desktop Space"
+        case .command: return "Run Command / App"
+        }
+    }
+}
+
+struct InstantSpacesShortcutItem: Identifiable, Codable, Equatable, Hashable {
+    var id: UUID
+    var storageValue: String
+    var actionType: InstantSpacesActionType
+    var targetSpace: Int
+    var command: String
+
+    init(id: UUID = UUID(), shortcut: GlobalShortcut, actionType: InstantSpacesActionType, targetSpace: Int = 1, command: String = "") {
+        self.id = id
+        self.storageValue = shortcut.storageValue
+        self.actionType = actionType
+        self.targetSpace = targetSpace
+        self.command = command
+    }
+
+    var shortcut: GlobalShortcut {
+        get {
+            GlobalShortcut(storageValue: storageValue) ?? GlobalShortcut(keyCode: Int64(kVK_ANSI_1), modifiers: [.option])
+        }
+        set {
+            storageValue = newValue.storageValue
+        }
+    }
+}
+
 struct InstantSpacesHotkey: Identifiable {
-    let id = UUID()
+    let id: UUID
     let label: String
     let flags: CGEventFlags
     let keyCode: CGKeyCode
@@ -16,7 +55,7 @@ struct InstantSpacesHotkey: Identifiable {
     let command: String?
 }
 
-enum InstantSpacesConfigParser {
+enum InstantSpacesConfigManager {
     static var primaryConfigPath: String {
         let home = NSHomeDirectory()
         let swapkPath = "\(home)/.config/swapk/swapk.conf"
@@ -28,6 +67,140 @@ enum InstantSpacesConfigParser {
             return issPath
         }
         return swapkPath
+    }
+
+    static func defaultShortcuts() -> [InstantSpacesShortcutItem] {
+        let digits: [(Int, Int64)] = [
+            (1, Int64(kVK_ANSI_1)),
+            (2, Int64(kVK_ANSI_2)),
+            (3, Int64(kVK_ANSI_3)),
+            (4, Int64(kVK_ANSI_4)),
+            (5, Int64(kVK_ANSI_5)),
+            (6, Int64(kVK_ANSI_6)),
+        ]
+        return digits.map { spaceNum, keyCode in
+            InstantSpacesShortcutItem(
+                shortcut: GlobalShortcut(keyCode: keyCode, modifiers: [.option]),
+                actionType: .space,
+                targetSpace: spaceNum
+            )
+        }
+    }
+
+    static func loadShortcuts() -> [InstantSpacesShortcutItem] {
+        if let data = UserDefaults.standard.data(forKey: DefaultsKey.instantSpacesShortcuts),
+           let items = try? JSONDecoder().decode([InstantSpacesShortcutItem].self, from: data) {
+            return items
+        }
+
+        // First run: migrate from ~/.config/swapk/swapk.conf if it exists
+        let migrated = migrateFromConfigFile()
+        let result = migrated.isEmpty ? defaultShortcuts() : migrated
+        saveShortcuts(result)
+        return result
+    }
+
+    static func saveShortcuts(_ items: [InstantSpacesShortcutItem]) {
+        if let data = try? JSONEncoder().encode(items) {
+            UserDefaults.standard.set(data, forKey: DefaultsKey.instantSpacesShortcuts)
+        }
+        syncToConfigFile(items)
+    }
+
+    private static func migrateFromConfigFile() -> [InstantSpacesShortcutItem] {
+        let path = primaryConfigPath
+        guard FileManager.default.fileExists(atPath: path),
+              let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return []
+        }
+
+        var items: [InstantSpacesShortcutItem] = []
+        let lines = content.components(separatedBy: .newlines)
+
+        for rawLine in lines {
+            var line = rawLine
+            if let commentIndex = line.firstIndex(of: "#") {
+                line = String(line[..<commentIndex])
+            }
+            line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty { continue }
+
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2 else { continue }
+            let key = parts[0]
+            let value = parts[1]
+
+            switch key.lowercased() {
+            case "swipe", "swipe_direction", "space_numbering", "overlay_detection", "gesture_speed":
+                break
+            default:
+                if let (flags, code) = parseHotkeySpec(key) {
+                    var modifiers: GlobalShortcutModifiers = []
+                    if flags.contains(.maskCommand) { modifiers.insert(.command) }
+                    if flags.contains(.maskAlternate) { modifiers.insert(.option) }
+                    if flags.contains(.maskControl) { modifiers.insert(.control) }
+                    if flags.contains(.maskShift) { modifiers.insert(.shift) }
+
+                    let shortcut = GlobalShortcut(keyCode: Int64(code), modifiers: modifiers)
+                    let isDigits = !value.isEmpty && value.allSatisfy { $0.isNumber }
+                    if isDigits, let spaceNum = Int(value), spaceNum >= 1 {
+                        items.append(InstantSpacesShortcutItem(
+                            shortcut: shortcut,
+                            actionType: .space,
+                            targetSpace: spaceNum
+                        ))
+                    } else {
+                        items.append(InstantSpacesShortcutItem(
+                            shortcut: shortcut,
+                            actionType: .command,
+                            command: value
+                        ))
+                    }
+                }
+            }
+        }
+
+        return items
+    }
+
+    private static func syncToConfigFile(_ items: [InstantSpacesShortcutItem]) {
+        let path = primaryConfigPath
+        let dir = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        var lines: [String] = [
+            "# Auto-generated by Woosh (Instant Spaces)",
+            "swipe = on",
+            "swipe_direction = \(UserDefaults.standard.bool(forKey: DefaultsKey.instantSpacesSwipeDirectionReversed) ? "reversed" : "normal")",
+            "space_numbering = \(UserDefaults.standard.bool(forKey: DefaultsKey.instantSpacesSpaceNumberingReversed) ? "reversed" : "normal")",
+            "gesture_speed = \(Int(UserDefaults.standard.double(forKey: DefaultsKey.instantSpacesGestureSpeed)))",
+            "overlay_detection = \(UserDefaults.standard.bool(forKey: DefaultsKey.instantSpacesOverlayDetectionEnabled) ? "on" : "off")",
+            ""
+        ]
+
+        for item in items {
+            let keySpec = formatHotkeySpec(item.shortcut)
+            if item.actionType == .space {
+                lines.append("\(keySpec) = \(item.targetSpace)")
+            } else {
+                lines.append("\(keySpec) = \(item.command)")
+            }
+        }
+
+        let output = lines.joined(separator: "\n") + "\n"
+        try? output.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    private static func formatHotkeySpec(_ shortcut: GlobalShortcut) -> String {
+        var parts: [String] = []
+        if shortcut.modifiers.contains(.control) { parts.append("ctrl") }
+        if shortcut.modifiers.contains(.option) { parts.append("opt") }
+        if shortcut.modifiers.contains(.shift) { parts.append("shift") }
+        if shortcut.modifiers.contains(.command) { parts.append("cmd") }
+
+        let keyName = keycodeNameMap[CGKeyCode(shortcut.keyCode)] ?? "key_\(shortcut.keyCode)"
+        parts.append(keyName)
+        return parts.joined(separator: "+")
     }
 
     private static let keycodeMap: [String: CGKeyCode] = [
@@ -50,6 +223,20 @@ enum InstantSpacesConfigParser {
         "comma": 43, ",": 43, "period": 47, ".": 47, "slash": 44, "/": 44,
         "backslash": 42, "\\": 42, "grave": 50, "`": 50
     ]
+
+    private static let keycodeNameMap: [CGKeyCode: String] = {
+        var map: [CGKeyCode: String] = [:]
+        for (name, code) in keycodeMap {
+            if map[code] == nil || name.count == 1 {
+                map[code] = name
+            }
+        }
+        map[36] = "return"
+        map[49] = "space"
+        map[48] = "tab"
+        map[53] = "esc"
+        return map
+    }()
 
     static func parseHotkeySpec(_ rawKey: String) -> (flags: CGEventFlags, keyCode: CGKeyCode)? {
         let parts = rawKey.lowercased().split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -75,129 +262,33 @@ enum InstantSpacesConfigParser {
         return (flags, code)
     }
 
-    struct LoadedConfig {
-        var swipeEnabled: Bool = true
-        var swipeDirectionReversed: Bool = false
-        var spaceNumberingReversed: Bool = false
-        var overlayDetectionEnabled: Bool = false
-        var gestureSpeed: Double = 2000.0
-        var bindings: [InstantSpacesHotkey] = []
-    }
+    static func convertToHotkeys(_ items: [InstantSpacesShortcutItem]) -> [InstantSpacesHotkey] {
+        return items.map { item in
+            let shortcut = item.shortcut
+            let flags = shortcut.modifiers.cgFlags
+            let keyCode = CGKeyCode(shortcut.keyCode)
+            let label = shortcut.displayString
 
-    static func loadConfig() -> LoadedConfig {
-        var config = LoadedConfig()
-
-        // Default bindings (opt+1..6) if no file or no bindings specified
-        let defaultDigits: [(Character, CGKeyCode, UInt32)] = [
-            ("1", 18, 0), ("2", 19, 1), ("3", 20, 2),
-            ("4", 21, 3), ("5", 23, 4), ("6", 22, 5)
-        ]
-        var defaultsBindings: [InstantSpacesHotkey] = []
-        for (char, code, idx) in defaultDigits {
-            defaultsBindings.append(InstantSpacesHotkey(
-                label: "opt+\(char)",
-                flags: .maskAlternate,
-                keyCode: code,
-                targetSpaceIndex: idx,
-                command: nil
-            ))
-        }
-
-        let path = primaryConfigPath
-        guard FileManager.default.fileExists(atPath: path),
-              let content = try? String(contentsOfFile: path, encoding: .utf8) else {
-            config.bindings = defaultsBindings
-            return config
-        }
-
-        var loadedBindings: [InstantSpacesHotkey] = []
-        let lines = content.components(separatedBy: .newlines)
-
-        for rawLine in lines {
-            var line = rawLine
-            if let commentIndex = line.firstIndex(of: "#") {
-                line = String(line[..<commentIndex])
-            }
-            line = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.isEmpty { continue }
-
-            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count == 2 else { continue }
-            let key = parts[0]
-            let value = parts[1]
-
-            switch key.lowercased() {
-            case "swipe":
-                config.swipeEnabled = (value.lowercased() == "on" || value.lowercased() == "true" || value == "1")
-            case "swipe_direction":
-                config.swipeDirectionReversed = (value.lowercased() == "reversed")
-            case "space_numbering":
-                config.spaceNumberingReversed = (value.lowercased() == "reversed")
-            case "overlay_detection":
-                config.overlayDetectionEnabled = (value.lowercased() == "on" || value.lowercased() == "true" || value == "1")
-            case "gesture_speed":
-                if let speed = Double(value) {
-                    config.gestureSpeed = speed
-                }
-            default:
-                if let (flags, code) = parseHotkeySpec(key) {
-                    let isAllDigits = !value.isEmpty && value.allSatisfy { $0.isNumber }
-                    if isAllDigits, let spaceNum = Int(value), spaceNum >= 1 {
-                        loadedBindings.append(InstantSpacesHotkey(
-                            label: key,
-                            flags: flags,
-                            keyCode: code,
-                            targetSpaceIndex: UInt32(spaceNum - 1),
-                            command: nil
-                        ))
-                    } else {
-                        loadedBindings.append(InstantSpacesHotkey(
-                            label: key,
-                            flags: flags,
-                            keyCode: code,
-                            targetSpaceIndex: nil,
-                            command: value
-                        ))
-                    }
-                }
+            if item.actionType == .space {
+                return InstantSpacesHotkey(
+                    id: item.id,
+                    label: label,
+                    flags: flags,
+                    keyCode: keyCode,
+                    targetSpaceIndex: UInt32(max(0, item.targetSpace - 1)),
+                    command: nil
+                )
+            } else {
+                return InstantSpacesHotkey(
+                    id: item.id,
+                    label: label,
+                    flags: flags,
+                    keyCode: keyCode,
+                    targetSpaceIndex: nil,
+                    command: item.command
+                )
             }
         }
-
-        config.bindings = loadedBindings.isEmpty ? defaultsBindings : loadedBindings
-        return config
-    }
-
-    static func ensureConfigFileExists() -> String {
-        let path = primaryConfigPath
-        if !FileManager.default.fileExists(atPath: path) {
-            let dir = (path as NSString).deletingLastPathComponent
-            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            let defaultTemplate = """
-            # ~/.config/swapk/swapk.conf
-            swipe = on
-            swipe_direction = reversed
-            space_numbering = normal
-            gesture_speed = 2000
-            overlay_detection = off
-
-            opt+1 = 1
-            opt+2 = 2
-            opt+3 = 3
-            opt+4 = 4
-            opt+5 = 5
-            opt+6 = 6
-
-            # Custom app launcher shortcuts:
-            opt+return = open -n -a iTerm
-            """
-            try? defaultTemplate.write(toFile: path, atomically: true, encoding: .utf8)
-        }
-        return path
-    }
-
-    static func openConfigFile() {
-        let path = ensureConfigFileExists()
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 }
 

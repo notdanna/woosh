@@ -227,10 +227,11 @@ SettingsDirectoryItem(
 
 ### C. Visibilidad del Cursor y Servidor de Ventanas (WindowServer)
 - Si tu función realiza cambios rápidos de escritorio, espacios o inyecciones de gestos sintéticos (`kIOHIDEventTypeDockSwipe`), WindowServer puede ocultar u "obscurecer" el cursor y olvidar restaurarlo si las transiciones se traslapan.
-- **Solución:**
-  1. Enlazar `CGSUnobscureCursor` y `CGSShowCursor` vía `dlsym` desde SkyLight.
-  2. Ejecutar `CGWarpMouseCursorPosition(loc)` sobre la posición actual del cursor (un *warp* de distancia cero obliga al compositor de hardware de WindowServer a regenerar la superficie del cursor).
-  3. Despachar un evento inofensivo de `mouseMoved` para forzar la actualización.
+- **Solución Correcta:**
+  1. Enlazar `CGSUnobscureCursor` y `CGSShowCursor` vía `dlsym` desde SkyLight para restaurar el contador de visibilidad del cursor directamente a nivel de WindowServer.
+  2. Llamar a `CGAssociateMouseAndMouseCursorPosition(true)` para asegurar que el puntero de hardware responda inmediatamente sin retrasos.
+- **¡ADVERTENCIA CRÍTICA: NUNCA usar `CGWarpMouseCursorPosition` ni eventos sintéticos de ratón en transiciones!**
+  macOS impone por defecto un intervalo de supresión de eventos locales (`LocalEventsSuppressionInterval` de ~250ms) tras cada llamada a `CGWarpMouseCursorPosition`. Si se llama o se encadena con timers, macOS congelará todos los eventos físicos del ratón, provocando que el cursor se bloquee o quede inmóvil durante ~1 segundo tras cada cambio de escritorio.
 
 ### D. Enlace Dinámico con APIs Privadas de macOS (CGS / SLS)
 - Si necesitas usar APIs privadas del WindowServer de macOS (como `CGSMainConnectionID`, `CGSCopyManagedDisplaySpaces`, etc.), no las enlaces estáticamente: cárgalas dinámicamente con `dlsym(UnsafeMutableRawPointer(bitPattern: -2), "SymbolName")`. Esto garantiza que la app no falle al iniciar en versiones futuras o distintas de macOS donde los símbolos cambien de nombre.

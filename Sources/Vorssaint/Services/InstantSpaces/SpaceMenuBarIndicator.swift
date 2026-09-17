@@ -173,24 +173,6 @@ final class SpaceMenuBarIndicator: NSObject, NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        let openConfigItem = NSMenuItem(
-            title: "Open Configuration File…",
-            action: #selector(openConfigFile),
-            keyEquivalent: ""
-        )
-        openConfigItem.target = self
-        menu.addItem(openConfigItem)
-
-        let reloadItem = NSMenuItem(
-            title: "Reload Configuration",
-            action: #selector(reloadConfig),
-            keyEquivalent: "r"
-        )
-        reloadItem.target = self
-        menu.addItem(reloadItem)
-
-        menu.addItem(NSMenuItem.separator())
-
         let settingsItem = NSMenuItem(
             title: "Instant Spaces Settings…",
             action: #selector(openSettings),
@@ -202,14 +184,6 @@ final class SpaceMenuBarIndicator: NSObject, NSMenuDelegate {
 
     @objc private func switchToSpaceMenuItem(_ sender: NSMenuItem) {
         InstantSpacesService.shared.switchToIndex(UInt32(sender.tag))
-    }
-
-    @objc private func openConfigFile() {
-        InstantSpacesConfigParser.openConfigFile()
-    }
-
-    @objc private func reloadConfig() {
-        InstantSpacesService.shared.reloadConfig()
     }
 
     @objc private func openSettings() {

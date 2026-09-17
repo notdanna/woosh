@@ -71,18 +71,7 @@ enum SpaceSwitcherSupport {
             _ = cgsUnobscureCursorFn?(connection)
             _ = cgsShowCursorFn?(connection)
         }
-
-        let tempEvent = CGEvent(source: nil)
-        let location = tempEvent?.location ?? .zero
-        if location != .zero {
-            CGWarpMouseCursorPosition(location)
-        }
-
-        if NSEvent.pressedMouseButtons == 0 && location != .zero {
-            if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left) {
-                moveEvent.post(tap: .cgSessionEventTap)
-            }
-        }
+        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
     }
 
     static func getActiveMenuBarDisplayIdentifier() -> String? {
