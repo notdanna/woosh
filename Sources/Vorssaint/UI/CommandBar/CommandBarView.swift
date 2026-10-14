@@ -8,13 +8,6 @@ import SwiftUI
 /// chrome to learn; every row is icon, name in plain words, where it lives,
 /// and its shortcut so the bar teaches the faster way while being used.
 struct CommandBarView: View {
-    /// Short enough to sit on one line, chosen to show three different things
-    /// the bar can do that a list of commands would never reveal.
-    static var examples: [String] {
-        ["100 km to mi", "2+2*3", "battery", "fire"].filter {
-            $0 != "battery" || PowerSampler.hasInternalBattery
-        }
-    }
     /// As tall as the list is ever allowed to be, so the panel never grows
     /// past what a laptop screen can show above the fold.
     static let listCeiling: CGFloat = 452
@@ -97,49 +90,51 @@ struct CommandBarView: View {
 
     private var text: CommandBarFeatureStrings { FeatureStrings.commandBar(l10n.language) }
 
+    private var isCompactRestingState: Bool {
+        service.mode == .search && trimmedQuery.isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             searchBar
-            switch service.mode {
-            case .search:
-                if showsCategoryChips {
-                    Divider()
-                    categoryChipsRow
-                }
-                if service.rows.isEmpty {
-                    // A category with nothing in it needs the same way out a
-                    // fruitless search gets, or the panel is a room with no
-                    // door in it.
-                    if !trimmedQuery.isEmpty || service.activeCategory != nil {
+            if !isCompactRestingState {
+                VStack(spacing: 0) {
+                    switch service.mode {
+                    case .search:
+                        if service.rows.isEmpty {
+                            Divider()
+                            emptyState
+                        } else {
+                            Divider()
+                            resultsList
+                        }
+                    case .argument(let entryID):
                         Divider()
-                        emptyState
+                        argumentCard(entryID: entryID)
+                    case .confirm(let entryID):
+                        Divider()
+                        confirmCard(entryID: entryID)
+                    case .actions:
+                        Divider()
+                        actionsList
+                    case .naming(let entryID):
+                        Divider()
+                        namingCard(entryID: entryID)
+                    case .capturingShortcut(let entryID):
+                        Divider()
+                        shortcutCard(entryID: entryID)
                     }
-                } else {
-                    if !showsCategoryChips { Divider() }
-                    resultsList
+                    Divider()
+                    footer
                 }
-            case .argument(let entryID):
-                Divider()
-                argumentCard(entryID: entryID)
-            case .confirm(let entryID):
-                Divider()
-                confirmCard(entryID: entryID)
-            case .actions:
-                Divider()
-                actionsList
-            case .naming(let entryID):
-                Divider()
-                namingCard(entryID: entryID)
-            case .capturingShortcut(let entryID):
-                Divider()
-                shortcutCard(entryID: entryID)
+                .transition(.identity)
+                .clipped()
             }
-            Divider()
-            footer
         }
-        .frame(width: 560)
-        .background(HUDBackdrop(cornerRadius: 22, contrast: .high))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .frame(width: 560, alignment: .top)
+        .background(HUDBackdrop(cornerRadius: 18, contrast: .high))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .animation(.snappy(duration: 0.18, extraBounce: 0), value: isCompactRestingState)
         .onAppear { focusSearch() }
         .onChange(of: service.presentationID) { _, _ in focusSearch() }
         .onChange(of: service.mode) { _, _ in focusSearch() }
@@ -204,7 +199,7 @@ struct CommandBarView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .frame(height: 52)
     }
 
     /// Everything that can be done to the selected row, in the same list
@@ -361,33 +356,6 @@ struct CommandBarView: View {
 
     private var resultsList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if service.isShowingSuggestions, service.activeCategory == nil {
-                // A list of commands never says the bar can add up, convert or
-                // reach into another app's menus. Examples do, and clicking
-                // one fills the field so it can be tried on the spot.
-                HStack(spacing: 5) {
-                    Text(text.tryTheseLabel)
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(0.5)
-                        .foregroundStyle(.tertiary)
-                    ForEach(CommandBarView.examples, id: \.self) { example in
-                        Button {
-                            service.query = example
-                        } label: {
-                            Text(example)
-                                .font(.system(size: 10, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.primary.opacity(0.06)))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-            }
             ScrollViewReader { proxy in
                 // The bar shows more than fits when nothing is typed, and a
                 // list with no scrollbar looks like a list that ends there.
@@ -675,28 +643,13 @@ struct CommandBarView: View {
     // MARK: - Empty, argument and confirm states
 
     private var emptyState: some View {
-        VStack(spacing: 9) {
-            BrandMark(width: 26, tint: markTint)
-                .opacity(0.3)
-                .frame(width: 26, height: 26)
-                .padding(.bottom, 2)
+        VStack(spacing: 8) {
             Text(text.noResultsTitle)
-                .font(.system(size: 12))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-            Button {
-                service.goHome()
-            } label: {
-                Text(text.noResultsAction)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-            }
-            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, 20)
     }
 
     private func argumentCard(entryID: String) -> some View {
@@ -776,7 +729,7 @@ struct CommandBarView: View {
                     .foregroundStyle(.tertiary)
                     .padding(.trailing, 4)
             }
-            Text(service.isShowingSuggestions && !service.categoryChips.isEmpty ? "⌃P ⌃N ↑↓ ←→" : "⌃P ⌃N ↑↓")
+            Text("⌃P ⌃N ↑↓")
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .foregroundStyle(.tertiary)
             Image(systemName: "return")

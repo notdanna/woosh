@@ -37,6 +37,18 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
     /// would leave an empty bar and no way back.
     var isAlwaysOn: Bool { self == .actions }
 
+    /// Whether this provider is available in the streamlined launcher.
+    /// Internal Vorssaint apps, clipboard history, menu commands, settings pages,
+    /// system settings panes, and emojis are disconnected and excluded.
+    var isAvailable: Bool {
+        switch self {
+        case .clipboard, .menus, .settingsPages, .macSettings, .emoji:
+            return false
+        default:
+            return true
+        }
+    }
+
     var symbolName: String {
         switch self {
         case .actions: return "wand.and.rays"
@@ -106,13 +118,14 @@ enum CommandBarPreferences {
     }
 
     static func isEnabled(_ source: CommandBarSource, disabledRaw: String) -> Bool {
-        source.isAlwaysOn || !disabledSources(from: disabledRaw).contains(source)
+        guard source.isAvailable else { return false }
+        return source.isAlwaysOn || !disabledSources(from: disabledRaw).contains(source)
     }
 
     /// The source a row belongs to, decided by its id. Rows with no prefix of
     /// their own are the app's own actions.
     static func source(ofRowID id: String) -> CommandBarSource {
-        for source in CommandBarSource.allCases {
+        for source in CommandBarSource.allCases where source.isAvailable {
             if let prefix = source.idPrefix, id.hasPrefix(prefix) { return source }
         }
         return .actions

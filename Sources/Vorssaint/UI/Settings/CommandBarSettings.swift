@@ -87,7 +87,7 @@ struct CommandBarSettings: View {
             }
 
             Section {
-                ForEach(CommandBarSource.allCases) { source in
+                ForEach(CommandBarSource.allCases.filter(\.isAvailable)) { source in
                     Toggle(isOn: binding(for: source)) {
                         Label(title(for: source), systemImage: source.symbolName)
                     }

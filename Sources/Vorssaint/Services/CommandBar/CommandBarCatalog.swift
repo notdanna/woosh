@@ -174,7 +174,6 @@ enum CommandBarCatalog {
                                                  automationDenied: automationDenied))
         entries.append(contentsOf: toggleEntries(s, language: language, bar: bar))
         entries.append(contentsOf: systemAnswerEntries(s, bar: bar))
-        entries.append(contentsOf: settingsEntries(s, language: language, bar: bar))
         entries.append(contentsOf: snippetEntries(bar))
         entries.append(contentsOf: linkEntries(
             CommandBarLinks.decode(UserDefaults.standard.data(forKey: DefaultsKey.commandBarLinks)),
@@ -879,10 +878,26 @@ enum CommandBarCatalog {
                            runningBundleIDs: Set<String>,
                            runningPaths: Set<String>,
                            bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
-        // Offering ourselves is a dead end: activating a menu bar app shows
-        // nothing, so the row would look broken.
+        // Offering ourselves or internal companion apps is a dead end.
         let ownBundleID = Bundle.main.bundleIdentifier
-        return apps.filter { $0.bundleID != ownBundleID }.map { app in
+        return apps.filter { app in
+            if let id = app.bundleID {
+                if id == ownBundleID
+                    || id.localizedCaseInsensitiveContains("vorssaint")
+                    || id.localizedCaseInsensitiveContains("woosh") {
+                    return false
+                }
+            }
+            let name = app.name.lowercased()
+            if name == "vorssaint" || name == "woosh" || name.contains("vorssaint") || name.contains("woosh") {
+                return false
+            }
+            let path = app.url.path.lowercased()
+            if path.contains("vorssaint") || path.contains("woosh") {
+                return false
+            }
+            return true
+        }.map { app in
             let isRunning = app.bundleID.map { runningBundleIDs.contains($0) } ?? false
                 || runningPaths.contains(app.url.standardizedFileURL.path)
             // The title may be localized while the bundle keeps the name the

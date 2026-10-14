@@ -166,6 +166,10 @@ final class CommandBarService: ObservableObject {
     private var restartObserver: NSObjectProtocol?
     private var restartPID: pid_t?
     private var restartURL: URL?
+    private var panelMoveObserver: NSObjectProtocol?
+    private var panelDragSaveWorkItem: DispatchWorkItem?
+    private var isProgrammaticFrameChange = false
+    private var activeLayoutAnimations = 0
 
     private init() {
         hotkey.onPress = { [weak self] in self?.toggle() }
@@ -194,6 +198,12 @@ final class CommandBarService: ObservableObject {
         }
         if !available {
             hide()
+            if let panelMoveObserver {
+                NotificationCenter.default.removeObserver(panelMoveObserver)
+                self.panelMoveObserver = nil
+            }
+            panelDragSaveWorkItem?.cancel()
+            panelDragSaveWorkItem = nil
             panel = nil
             // Uninstalled means uninstalled: the catalog, the app scan and the
             // window list all go, not just the window.
@@ -309,19 +319,16 @@ final class CommandBarService: ObservableObject {
         refreshStorageAnswer(for: id)
         refreshWiFiState(for: id)
         loadAppsIfNeeded(for: id)
-        loadMacSettingsIfNeeded(for: id)
         loadWindowsIfNeeded(for: id)
-        loadMenusIfNeeded(for: id)
         loadSelection(for: id)
         loadKillProcessEntries(for: id)
     }
 
     private func present(_ panel: NSPanel) {
-        position(panel)
+        position(panel, animated: false)
         installMonitors(for: panel)
         panel.alphaValue = 1
-        panel.orderFrontRegardless()
-        panel.makeKey()
+        panel.makeKeyAndOrderFront(nil)
     }
 
     func hide() {
@@ -369,7 +376,7 @@ final class CommandBarService: ObservableObject {
     /// Re-fits the panel to its content as the result list grows and
     /// shrinks, keeping the top edge and horizontal center still so the
     /// field itself never jumps under the caret.
-    func refreshPanelLayout() {
+    func refreshPanelLayout(animated: Bool = true) {
         guard let panel, panel.isVisible else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.panel, panel.isVisible else { return }
@@ -383,7 +390,30 @@ final class CommandBarService: ObservableObject {
             // Growing downward must stop at the screen edge; the list scrolls
             // instead of hiding its own footer below the bezel.
             frame.origin.y = max(frame.origin.y, screen.minY + 16)
-            panel.setFrame(frame, display: true)
+
+            let heightDelta = abs(panel.frame.height - frame.height)
+            let originYDelta = abs(panel.frame.origin.y - frame.origin.y)
+            guard heightDelta > 0.5 || originYDelta > 0.5 else { return }
+
+            if animated {
+                self.activeLayoutAnimations += 1
+                self.isProgrammaticFrameChange = true
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.18
+                    context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+                    panel.animator().setFrame(frame, display: true)
+                }, completionHandler: { [weak self] in
+                    guard let self else { return }
+                    self.activeLayoutAnimations = max(0, self.activeLayoutAnimations - 1)
+                    if self.activeLayoutAnimations == 0 {
+                        self.isProgrammaticFrameChange = false
+                    }
+                })
+            } else {
+                self.isProgrammaticFrameChange = true
+                panel.setFrame(frame, display: true)
+                self.isProgrammaticFrameChange = false
+            }
         }
     }
 
@@ -500,8 +530,7 @@ final class CommandBarService: ObservableObject {
 
     /// The chip order. Fixed, so the row never reshuffles under a pointer.
     private static let chipOrder: [CommandBarSource] = [
-        .actions, .apps, .clipboard, .windows, .menus, .settingsPages, .macSettings,
-        .snippets, .emoji, .folders, .links,
+        .actions, .apps, .windows, .snippets, .folders, .links,
     ]
 
     /// Walks the chips with the arrow keys. Only while the field is empty:
@@ -539,36 +568,15 @@ final class CommandBarService: ObservableObject {
         refreshResults()
     }
     /// Whether a category is worth a chip.
-    ///
-    /// The three that come from background loads are decided by whether they
-    /// COULD have rows, not by whether the rows have arrived: asking the
-    /// arrays would draw a short row of chips and then grow it a moment later,
-    /// moving every chip under whoever was already reaching for one. The rest
-    /// are built synchronously, so they answer with the same filter the
-    /// content path applies, hidden rows included.
     private func categoryHasContent(_ source: CommandBarSource) -> Bool {
-        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        guard source.isAvailable else { return false }
         switch source {
-        case .apps, .macSettings:
-            // Every Mac has applications and Settings panes; the scan only
-            // decides when.
+        case .apps:
             return true
         case .windows:
             return (AppFeature.switcher.isAvailable || AppFeature.windowLayout.isAvailable)
                 && Permissions.shared.accessibility
-        case .menus:
-            return Permissions.shared.accessibility
-                && NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                    != Bundle.main.bundleIdentifier
-        case .clipboard:
-            return !categoryContent(source, bar: bar, limit: 1).isEmpty
-        case .emoji:
-            let hidden = hiddenKeys
-            return emojiEntries.contains { !hidden.contains($0.stableKey) }
-        case .actions, .settingsPages, .snippets, .folders, .links:
-            // Asked once per chip on every pass with an empty field, so it
-            // stops at the first row that qualifies instead of building a copy
-            // of the catalog five times over.
+        case .actions, .snippets, .folders, .links:
             let hidden = hiddenKeys
             return catalog.contains {
                 CommandBarPreferences.source(ofRowID: $0.id) == source
@@ -576,7 +584,8 @@ final class CommandBarService: ObservableObject {
             }
         case .killProcess:
             return AppFeature.killProcess.isAvailable
-        case .quitApps, .answers, .calculator, .selection, .files:
+        case .menus, .settingsPages, .macSettings, .clipboard, .emoji,
+             .quitApps, .answers, .calculator, .selection, .files:
             return false
         }
     }
@@ -586,24 +595,19 @@ final class CommandBarService: ObservableObject {
     private func categoryContent(_ source: CommandBarSource,
                                  bar: CommandBarFeatureStrings,
                                  limit: Int = 60) -> [CommandBarEntry] {
+        guard source.isAvailable else { return [] }
         let hidden = hiddenKeys
         let rows: [CommandBarEntry]
         switch source {
         case .actions:
             rows = catalog.filter { CommandBarPreferences.source(ofRowID: $0.id) == .actions }
         case .apps: rows = appEntries
-        case .macSettings: rows = macSettingsEntries
         case .windows: rows = windowEntries
-        case .menus: rows = menuEntries
-        case .emoji: rows = emojiEntries
-        case .settingsPages, .snippets, .folders, .links:
+        case .snippets, .folders, .links:
             rows = catalog.filter { CommandBarPreferences.source(ofRowID: $0.id) == source }
-        case .clipboard:
-            rows = CommandBarCatalog.clipboardBrowseEntries(limit: limit, bar: bar) { [weak self] entry in
-                self?.paste(entry)
-            }
         case .killProcess: rows = killProcessEntries
-        case .quitApps, .answers, .calculator, .selection, .files:
+        case .menus, .settingsPages, .macSettings, .clipboard, .emoji,
+             .quitApps, .answers, .calculator, .selection, .files:
             rows = []
         }
         return rows.filter { !hidden.contains($0.stableKey) }
@@ -781,7 +785,7 @@ final class CommandBarService: ObservableObject {
 
     private func rebuildCatalog(index: Bool = true) {
         catalog = CommandBarCatalog.build(automationDenied: finderAutomationDenied)
-        emojiEntries = CommandBarCatalog.emojiEntries(bar: FeatureStrings.commandBar(L10n.shared.language))
+        emojiEntries = []
         builtLanguage = L10n.shared.language
         if index { indexEntries() }
     }
@@ -797,8 +801,7 @@ final class CommandBarService: ObservableObject {
     /// Every row the bar can rank right now, in the order the pool builds
     /// them: what the Mac holds first, what is borrowed after.
     private var indexableEntries: [CommandBarEntry] {
-        selectionEntries + killProcessEntries + catalog + appEntries + macSettingsEntries + windowEntries
-            + quitEntries + menuEntries + emojiEntries
+        selectionEntries + killProcessEntries + catalog + appEntries + windowEntries + quitEntries
     }
 
     private func indexEntries() {
@@ -865,22 +868,13 @@ final class CommandBarService: ObservableObject {
         case .search:
             let trimmed = query.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
-                let disabled = CommandBarPreferences.disabledSources(from: disabledSourcesRaw)
-                categoryChips = Self.chipOrder.filter {
-                    !disabled.contains($0) && categoryHasContent($0)
-                }
-                if let category = activeCategory {
-                    let bar = FeatureStrings.commandBar(L10n.shared.language)
-                    rows = CommandBarService.uniqued(categoryContent(category, bar: bar))
-                    sectionTitles = rows.isEmpty
-                        ? [:]
-                        : [0: categoryHeading(category, count: rows.count)]
-                } else {
-                    let suggestions = suggestionRows()
-                    rows = suggestions.rows
-                    sectionTitles = suggestions.titles
-                }
-                isShowingSuggestions = !rows.isEmpty
+                categoryChips = []
+                rows = []
+                sectionTitles = [:]
+                isShowingSuggestions = false
+                selectedIndex = 0
+                selectedID = nil
+                lastRankedQuery = nil
             } else {
                 // Two rows with one id is undefined behaviour in a SwiftUI
                 // list: the wrong one gets the click and the selection jumps.
@@ -1056,9 +1050,8 @@ final class CommandBarService: ObservableObject {
     /// How many rows each kind may contribute, so one provider never floods
     /// the list. Actions have no cap: they are what the bar is for.
     private static let kindLimits: [(prefix: String, limit: Int)] = [
-        ("app.", 5), ("window.", 4), ("quit.", 3), ("menu.", 5), ("emoji.", 6),
-        ("settings.", 4), ("macsettings.", 4), ("clipboard.", 4), ("snippet.", 4),
-        ("file.", 4),
+        ("app.", 8), ("window.", 4), ("quit.", 3), ("snippet.", 4),
+        ("file.", 6),
         // Every switch answers to the same verb, so searching that verb would
         // otherwise fill the list with twenty rows that all read alike.
         ("toggle.", 5),
@@ -1174,20 +1167,13 @@ final class CommandBarService: ObservableObject {
             UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
         let now = Date().timeIntervalSince1970
 
-        // The clipboard is searched with everything that was typed: digits
-        // are part of what people look for.
-        let clipboard = CommandBarCatalog.clipboardEntries(matching: trimmed,
-                                                           bar: bar) { [weak self] entry in
-            self?.paste(entry)
-        }
-
         let names = aliases
         let pinnedKeys = Set(pins)
         let hidden = hiddenKeys
 
         // What is selected comes first, so a tie goes to the thing the person
         // is already looking at.
-        var pool = selectionEntries + catalog + appEntries + macSettingsEntries + windowEntries
+        var pool = selectionEntries + catalog + appEntries + windowEntries
         // Two script names can overlap ("run" and "run report"). Only the
         // longest matching one is eligible; otherwise the shorter row can win
         // a ranking tie and Return runs a different file from the answer shown.
@@ -1209,15 +1195,6 @@ final class CommandBarService: ObservableObject {
         if CommandBarSearch.matchesVerb(trimmed, in: bar.quitFormat) {
             pool.append(contentsOf: quitEntries)
         }
-        // Menu commands are a deep list; below two letters it would bury
-        // everything the bar itself can do. Running processes are excluded
-        // from ordinary typed search entirely - they only surface once you've
-        // explicitly entered the Kill Process category (see categoryContent).
-        if effectiveQuery.count >= 2 {
-            pool.append(contentsOf: menuEntries)
-            pool.append(contentsOf: emojiEntries)
-        }
-        pool.append(contentsOf: clipboard)
         pool.append(contentsOf: fileRows)
 
         // The kind of each surviving row, worked out once: the switches are
@@ -2259,13 +2236,15 @@ final class CommandBarService: ObservableObject {
 
     private func ensurePanel() -> NSPanel {
         if let panel { return panel }
-        let panel = KeyableBarPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 380),
+        let panel = KeyableBarPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 52),
                                     styleMask: [.borderless, .nonactivatingPanel],
                                     backing: .buffered,
                                     defer: false)
         panel.title = "Vorssaint"
         panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = false
+        panel.isMovable = true
+        panel.isMovableByWindowBackground = true
+        panel.animationBehavior = .none
         panel.hidesOnDeactivate = false
         panel.level = .floating
         panel.backgroundColor = .clear
@@ -2275,6 +2254,7 @@ final class CommandBarService: ObservableObject {
         host.sizingOptions = .preferredContentSize
         panel.contentViewController = host
         self.panel = panel
+        installPanelObservers(for: panel)
         return panel
     }
 
@@ -2285,7 +2265,7 @@ final class CommandBarService: ObservableObject {
     /// away from that spot is added on, so the choice survives the close.
     private func position(_ panel: NSPanel, animated: Bool = false) {
         panel.contentViewController?.view.layoutSubtreeIfNeeded()
-        let size = panel.contentViewController?.view.fittingSize ?? NSSize(width: 560, height: 380)
+        let size = panel.contentViewController?.view.fittingSize ?? NSSize(width: 560, height: 52)
         // Decided once, here: moving the pointer to another display while
         // typing must not clamp the panel against a screen it is not on.
         let screen = NSScreen.pointerVisibleFrame
@@ -2293,9 +2273,11 @@ final class CommandBarService: ObservableObject {
         let offset = positionOffset
         let origin = CommandBarPreferences.clampedPanelOrigin(
             size: size, in: screen, offset: offset)
+        isProgrammaticFrameChange = true
         panel.setFrame(NSRect(origin: origin, size: size),
                        display: true,
-                       animate: animated)
+                       animate: false)
+        isProgrammaticFrameChange = false
     }
 
     /// How far the person dragged the bar from the spot it would otherwise
@@ -2318,7 +2300,11 @@ final class CommandBarService: ObservableObject {
             height: panel.frame.maxY - (screen.minY + screen.height * 0.72))
         let origin = CommandBarPreferences.clampedPanelOrigin(
             size: panel.frame.size, in: screen, offset: draggedOffset)
-        if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+        if panel.frame.origin != origin {
+            isProgrammaticFrameChange = true
+            panel.setFrameOrigin(origin)
+            isProgrammaticFrameChange = false
+        }
         let offset = CGSize(width: panel.frame.midX - screen.midX,
                             height: panel.frame.maxY - (screen.minY + screen.height * 0.72))
         let encoded = CommandBarPreferences.encodePositionOffset(offset)
@@ -2330,14 +2316,31 @@ final class CommandBarService: ObservableObject {
         hasCustomPosition = !encoded.isEmpty
     }
 
-    /// The way back: a double-click on the mark, or the button in Settings,
-    /// returns the bar to the spot it opens on by default, with the same
-    /// short slide it took on the way there.
+    /// Returns the bar to the default spot without slide animation.
     func resetPanelPosition() {
         UserDefaults.standard.removeObject(forKey: DefaultsKey.commandBarPositionOffset)
         hasCustomPosition = false
         guard let panel, panel.isVisible else { return }
-        position(panel, animated: true)
+        position(panel, animated: false)
+    }
+
+    private func installPanelObservers(for panel: NSPanel) {
+        if let panelMoveObserver {
+            NotificationCenter.default.removeObserver(panelMoveObserver)
+        }
+        panelMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, !self.isProgrammaticFrameChange else { return }
+            self.panelDragSaveWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.finishPanelDrag()
+            }
+            self.panelDragSaveWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        }
     }
 
     // MARK: - Monitors
