@@ -10,16 +10,21 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$PWD/build/ModuleCache}"
+mkdir -p "$CLANG_MODULE_CACHE_PATH"
+
 # Flags: --dev builds the local-only "Woosh (Developer)" variant (its own
 # bundle id, so it coexists with the official app); --install puts it in /Applications.
 DEV=0
 INSTALL=0
 TEST=0
+CLEAN=0
 for arg in "$@"; do
     case "$arg" in
         --dev)     DEV=1 ;;
         --install) INSTALL=1 ;;
         --test)    TEST=1 ;;
+        --clean)   CLEAN=1 ;;
     esac
 done
 
@@ -270,27 +275,79 @@ if (( TEST )); then
     exit $?
 fi
 
-echo "▸ Compiling (release) against $(basename "$SDK")…"
-rm -rf build
-mkdir -p build
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
-    Sources/Vorssaint/**/*.swift \
-    -o "build/$EXECUTABLE"
+if (( CLEAN )); then
+    echo "▸ Cleaning build directory (--clean)…"
+    rm -rf build
+fi
+mkdir -p build/objs build/ModuleCache
 
-echo "▸ Compiling protected fan helper…"
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
-    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift \
-    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift \
-    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift \
-    Sources/FanControlHelper/main.swift \
-    -o "build/$FAN_HELPER_ID"
-"build/$FAN_HELPER_ID" --selftest
+if (( CLEAN )); then
+    echo "▸ Compiling clean (release) against $(basename "$SDK")…"
+    CLANG_MODULE_CACHE_PATH="$PWD/build/ModuleCache" swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        Sources/Vorssaint/**/*.swift \
+        -o "build/$EXECUTABLE"
+else
+    echo "▸ Compiling incremental against $(basename "$SDK")…"
+    python3 -c '
+import hashlib, json, glob, os
+files = sorted(glob.glob("Sources/Vorssaint/**/*.swift", recursive=True))
+os.makedirs("build/objs", exist_ok=True)
+ofm = {"": {"swift-dependencies": "build/objs/master.swiftdeps"}}
+for f in files:
+    h = hashlib.md5(f.encode("utf-8")).hexdigest()[:8]
+    base = os.path.splitext(os.path.basename(f))[0] + "_" + h
+    ofm[f] = {
+        "object": f"build/objs/{base}.o",
+        "dependencies": f"build/objs/{base}.d",
+        "swift-dependencies": f"build/objs/{base}.swiftdeps"
+    }
+with open("build/output-file-map.json", "w") as out:
+    json.dump(ofm, out, indent=2)
+'
+    CLANG_MODULE_CACHE_PATH="$PWD/build/ModuleCache" swiftc \
+        -c -incremental -enable-batch-mode -output-file-map build/output-file-map.json \
+        -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        Sources/Vorssaint/**/*.swift
 
-echo "▸ Generating app icon…"
-swift Tools/MakeIcon.swift build/AppIcon.iconset
-xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png 2>/dev/null || true
+    echo "▸ Linking $EXECUTABLE…"
+    swiftc -target "$TARGET" -sdk "$SDK" \
+        build/objs/*.o \
+        -o "build/$EXECUTABLE"
+fi
+
+FAN_HELPER_SOURCES=(
+    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift
+    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift
+    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift
+    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift
+    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift
+    Sources/FanControlHelper/main.swift
+)
+NEED_FAN_HELPER=0
+if [[ ! -f "build/$FAN_HELPER_ID" ]]; then
+    NEED_FAN_HELPER=1
+else
+    for src in "${FAN_HELPER_SOURCES[@]}"; do
+        if [[ "$src" -nt "build/$FAN_HELPER_ID" ]]; then
+            NEED_FAN_HELPER=1
+            break
+        fi
+    done
+fi
+
+if (( NEED_FAN_HELPER )); then
+    echo "▸ Compiling protected fan helper…"
+    CLANG_MODULE_CACHE_PATH="$PWD/build/ModuleCache" swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        "${FAN_HELPER_SOURCES[@]}" \
+        -o "build/$FAN_HELPER_ID"
+    "build/$FAN_HELPER_ID" --selftest
+fi
+
+if [[ ! -f "build/AppIcon.icns" || "Tools/MakeIcon.swift" -nt "build/AppIcon.icns" ]]; then
+    echo "▸ Generating app icon…"
+    swift Tools/MakeIcon.swift build/AppIcon.iconset
+    xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png 2>/dev/null || true
+fi
 
 echo "▸ Assembling and signing bundle…"
 STAGE="$(mktemp -d)/$APP_NAME.app"
